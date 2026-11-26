@@ -1,0 +1,32 @@
+# Render Blueprint for the AfyaPay STAGING environment only.
+# Free tier: the web service sleeps when idle, and the free database expires
+# after about 30 days (Render's policy at time of writing; check the dashboard).
+# Synthetic data only. Never point this at real customers or live M-Pesa.
+databases:
+  - name: afyapay-staging-db
+    plan: free
+    region: frankfurt
+    databaseName: afyapay_staging
+    user: afyapay
+    ipAllowList: []   # no access from outside Render
+
+services:
+  - type: web
+    name: afyapay-staging
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: main
+    autoDeploy: true
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start:staging
+    healthCheckPath: /v1/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: APP_ENV
+        value: staging
+      - key: DATABASE_URL
+        fromDatabase:
+          name: afyapay-staging-db
+          property: connectionString

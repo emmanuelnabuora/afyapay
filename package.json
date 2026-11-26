@@ -4,13 +4,17 @@
   "private": true,
   "description": "AfyaPay modular monolith: premium payments direct to insurers",
   "license": "UNLICENSED",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "migrate": "ts-node scripts/migrate.ts",
-    "test": "jest"
+    "migrate": "ts-node src/database/migrate.ts",
+    "test": "jest",
+    "synthetic": "ts-node scripts/synthetic.ts",
+    "start:staging": "node dist/database/migrate.js && node dist/main.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.0",
@@ -22,6 +26,7 @@
   },
   "devDependencies": {
     "@nestjs/testing": "^11.1.0",
+    "@types/express": "^5.0.6",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.0",
     "@types/pg": "^8.11.10",
@@ -35,6 +40,10 @@
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
-    "roots": ["<rootDir>/src", "<rootDir>/test"]
+    "roots": [
+      "<rootDir>/src",
+      "<rootDir>/test"
+    ],
+    "globalSetup": "<rootDir>/test/global-setup.ts"
   }
 }

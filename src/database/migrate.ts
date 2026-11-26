@@ -6,7 +6,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client } from 'pg';
 
-export async function migrate(connectionString: string, dir = join(__dirname, '..', 'db', 'migrations')): Promise<string[]> {
+export async function migrate(connectionString: string, dir = join(__dirname, '..', '..', 'db', 'migrations')): Promise<string[]> {
   const client = new Client({ connectionString });
   await client.connect();
   const applied: string[] = [];
