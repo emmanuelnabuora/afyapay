@@ -37,6 +37,6 @@ export class Database implements OnApplicationShutdown {
     },
     Database,
   ],
-  exports: [Database],
+  exports: [Database, PG_POOL],
 })
 export class DatabaseModule {}

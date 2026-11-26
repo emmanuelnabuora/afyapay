@@ -1,9 +1,8 @@
 /**
  * Integration tests against a real PostgreSQL. CI provides one; locally,
- * set TEST_DATABASE_URL to a throwaway database (it is reset by this test).
+ * set TEST_DATABASE_URL to a throwaway database (test/global-setup.ts resets it).
  */
 import { Client } from 'pg';
-import { migrate } from '../scripts/migrate';
 
 const url = process.env.TEST_DATABASE_URL;
 if (!url) {
@@ -40,14 +39,6 @@ async function postEntry(lines: Array<[string, number]>, book = 'collections') {
 }
 
 beforeAll(async () => {
-  const reset = new Client({ connectionString: url });
-  await reset.connect();
-  await reset.query(
-    'drop schema if exists identity, insurer, policy, payment, inbox, ledger, reconciliation, platform, governance cascade; drop table if exists public.schema_migration',
-  );
-  await reset.end();
-  await migrate(url);
-
   db = new Client({ connectionString: url });
   await db.connect();
   const acct = async (book: string, code: string) =>
