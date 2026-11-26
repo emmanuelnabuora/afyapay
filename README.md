@@ -44,3 +44,9 @@ The ledger and audit tables are append-only, enforced by database triggers: an U
 `render.yaml` defines the staging environment: one free web service and one free PostgreSQL in Frankfurt, deploying `main` automatically. On start it applies migrations, then serves `/v1/health`. It uses synthetic data only, and the app refuses to start with `APP_ENV=production` until the launch gates are closed and the founder approves production.
 
 To create it: in the Render dashboard choose **New → Blueprint**, connect this GitHub repository and apply `render.yaml`. No secrets need to be entered; the database URL is wired in by Render.
+
+## Customer sign-in (pre-launch)
+
+`POST /v1/auth/otp {phone}` → `POST /v1/auth/otp/verify {challengeId, code}` returns a 15-minute access token and a 30-day refresh token (rotated on every `POST /v1/auth/refresh`; reusing an old one signs the customer out everywhere). `GET /v1/me` needs the access token.
+
+Before go-live no SMS is sent, and only synthetic numbers (`+254700000xxx`) can sign in, with the fixed code `123456`. Real numbers are refused outside production.
