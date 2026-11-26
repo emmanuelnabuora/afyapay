@@ -14,7 +14,8 @@
     "migrate": "ts-node src/database/migrate.ts",
     "test": "jest",
     "synthetic": "ts-node scripts/synthetic.ts",
-    "start:staging": "node dist/database/migrate.js && node dist/main.js"
+    "start:staging": "node dist/database/migrate.js && node dist/database/seed-sandbox.js && node dist/main.js",
+    "seed:sandbox": "ts-node src/database/seed-sandbox.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.0",

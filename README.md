@@ -50,3 +50,7 @@ To create it: in the Render dashboard choose **New → Blueprint**, connect this
 `POST /v1/auth/otp {phone}` → `POST /v1/auth/otp/verify {challengeId, code}` returns a 15-minute access token and a 30-day refresh token (rotated on every `POST /v1/auth/refresh`; reusing an old one signs the customer out everywhere). `GET /v1/me` needs the access token.
 
 Before go-live no SMS is sent, and only synthetic numbers (`+254700000xxx`) can sign in, with the fixed code `123456`. Real numbers are refused outside production.
+
+## Linking a policy
+
+`GET /v1/insurers` and `GET /v1/insurers/{code}/consent` give the insurer list and the consent wording with its version. `POST /v1/me/policy-links {insurerCode, policyNumber, consent: true, consentTextVersion}` records the consent and creates a link that waits for the insurer (`pending_insurer`). Only the insurer can confirm or reject it (`PolicyLinkService.decide`; the insurer portal endpoint arrives with insurer sign-in in E7). Staging seeds two fictional insurers, PWANI and JAMII, on start.
