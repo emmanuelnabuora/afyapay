@@ -32,9 +32,15 @@ npm run synthetic -- --seed 7 --customers 50 > data/synthetic/sample.json
 ## Layout
 
 - `src/modules/<module>`: one NestJS module per domain (identity, insurer, policy, payment, inbox, ledger, reconciliation, platform, governance), each owning the database schema of the same name.
-- `db/migrations`: plain SQL migrations, applied in order by `scripts/migrate.ts`.
+- `db/migrations`: plain SQL migrations, applied in order by `src/database/migrate.ts` (`npm run migrate`).
 - `src/modules/platform`: Idempotency-Key handling for every POST, the transactional outbox and the PostgreSQL job queue.
 - `src/common/mask.ts`: masks phone numbers, ID numbers, tokens and secrets before anything is logged.
 - `test`: integration tests against a real PostgreSQL.
 
 The ledger and audit tables are append-only, enforced by database triggers: an UPDATE, DELETE or TRUNCATE fails, and every journal entry must balance to zero at commit. See `CLAUDE.md` for the rules every change follows.
+
+## Staging on Render
+
+`render.yaml` defines the staging environment: one free web service and one free PostgreSQL in Frankfurt, deploying `main` automatically. On start it applies migrations, then serves `/v1/health`. It uses synthetic data only, and the app refuses to start with `APP_ENV=production` until the launch gates are closed and the founder approves production.
+
+To create it: in the Render dashboard choose **New → Blueprint**, connect this GitHub repository and apply `render.yaml`. No secrets need to be entered; the database URL is wired in by Render.

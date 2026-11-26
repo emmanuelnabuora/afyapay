@@ -11,9 +11,10 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "migrate": "ts-node scripts/migrate.ts",
+    "migrate": "ts-node src/database/migrate.ts",
     "test": "jest",
-    "synthetic": "ts-node scripts/synthetic.ts"
+    "synthetic": "ts-node scripts/synthetic.ts",
+    "start:staging": "node dist/database/migrate.js && node dist/main.js"
   },
   "dependencies": {
     "@nestjs/common": "^11.1.0",

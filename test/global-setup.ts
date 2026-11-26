@@ -3,7 +3,7 @@
  * applies every migration, so test files can run in parallel against it.
  */
 import { Client } from 'pg';
-import { migrate } from '../scripts/migrate';
+import { migrate } from '../src/database/migrate';
 
 export default async function globalSetup(): Promise<void> {
   const url = process.env.TEST_DATABASE_URL;
