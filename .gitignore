@@ -1,0 +1,28 @@
+# Dependencies and builds
+node_modules/
+dist/
+build/
+coverage/
+.turbo/
+
+# Environment and secrets: never commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+secrets/
+
+# Data: never commit real or exported data
+*.dump
+*.sql.gz
+data/exports/
+
+# Editors and OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+*.log
