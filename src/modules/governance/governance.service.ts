@@ -15,7 +15,6 @@ export interface UploadedEvidence {
 }
 
 type Kind = 'role_grant' | 'role_revoke' | 'setting_change' | 'customer_unmask';
-type SettingKey = 'staff_ip_allowlist' | 'live_money_enabled';
 
 /** A rule the database refused (raised with errcode P0001) becomes a clear 403 instead of a 500. */
 async function guarded<T>(fn: () => Promise<T>): Promise<T> {
@@ -118,6 +117,7 @@ export class GovernanceService {
         // Nothing to apply: the approval lets the proposer see the number for 30 minutes.
       } else if (req.kind === 'setting_change') {
         if (req.payload.key === 'live_money_enabled' && req.payload.value === true) await this.checkLiveMoneyGates(tx);
+        if (req.payload.key === 'plan_buying_enabled' && req.payload.value === true) await this.checkBuyingGate(tx);
         await guarded(() => tx.query('insert into governance.setting_event (key, value, approval_request_id) values ($1, $2, $3)', [req.payload.key, JSON.stringify(req.payload.value), id]));
       } else {
         if (req.kind === 'role_revoke' && req.payload.role === 'super_admin') {
@@ -196,6 +196,11 @@ export class GovernanceService {
       if (value) await this.checkLiveMoneyGates(this.pool);
       return value;
     }
+    if (key === 'plan_buying_enabled') {
+      if (typeof value !== 'boolean') throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'setting.invalid', 'plan_buying_enabled is true or false.');
+      if (value) await this.checkBuyingGate(this.pool);
+      return value;
+    }
     if (key === 'staff_ip_allowlist') {
       if (!Array.isArray(value) || value.length > 50 || !value.every((v) => typeof v === 'string' && /^[0-9a-fA-F:.]+(\/\d{1,3})?$/.test(v))) {
         throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'setting.invalid', 'staff_ip_allowlist is a list of up to 50 addresses or ranges, such as "196.201.214.0/24".');
@@ -207,7 +212,7 @@ export class GovernanceService {
         throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'setting.invalid', 'One of the addresses or ranges is not valid.');
       }
     }
-    throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'setting.unknown', 'key must be staff_ip_allowlist or live_money_enabled.');
+    throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'setting.unknown', 'key must be staff_ip_allowlist, live_money_enabled or plan_buying_enabled.');
   }
 
   private async checkLiveMoneyGates(db: Pool | PoolClient) {
@@ -215,14 +220,21 @@ export class GovernanceService {
     if (rows.length) throw fail(HttpStatus.CONFLICT, 'live_money.gates_open', `Live money stays off until launch gates G1 to G5 are closed. Still open: ${rows.map((r) => r.code).join(', ')}.`);
   }
 
+  private async checkBuyingGate(db: Pool | PoolClient) {
+    const { rows } = await db.query<{ closed: boolean }>("select governance.gate_closed('G6') as closed");
+    if (!rows[0].closed) throw fail(HttpStatus.CONFLICT, 'plan_buying.gate_open', 'Buying plans stays off until launch gate G6 (distribution licence route) is closed.');
+  }
+
   async settings() {
-    const { rows } = await this.pool.query<{ ip: string[] | null; live: boolean | null; allowed: boolean }>(
-      "select governance.setting('staff_ip_allowlist') as ip, governance.setting('live_money_enabled') as live, governance.live_money_allowed() as allowed",
+    const { rows } = await this.pool.query<{ ip: string[] | null; live: boolean | null; allowed: boolean; buying: boolean | null; buying_allowed: boolean }>(
+      `select governance.setting('staff_ip_allowlist') as ip, governance.setting('live_money_enabled') as live, governance.live_money_allowed() as allowed,
+              governance.setting('plan_buying_enabled') as buying, governance.plan_buying_allowed() as buying_allowed`,
     );
     const open = (await this.pool.query<{ code: string }>('select code from unnest($1::text[]) as t(code) where not governance.gate_closed(code) order by 1', [PILOT_GATES_FOR_LIVE_MONEY])).rows.map((r) => r.code);
     return {
       staffIpAllowlist: rows[0].ip ?? [],
       liveMoney: { switchedOn: rows[0].live ?? false, allowed: rows[0].allowed, gatesStillOpen: open },
+      planBuying: { switchedOn: rows[0].buying ?? false, allowed: rows[0].buying_allowed },
     };
   }
 
