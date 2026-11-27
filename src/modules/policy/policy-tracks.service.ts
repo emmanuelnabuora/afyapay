@@ -39,7 +39,7 @@ export class PolicyTracksService {
   ) {}
 
   /** The insurer sets or replaces the premium plan for a confirmed policy. */
-  async setPremiumSchedule(linkId: string, actor: InsurerActor, plan: { frequency: Frequency; amountMinor: bigint; startsOn: string }): Promise<void> {
+  async setPremiumSchedule(linkId: string, actor: InsurerActor, plan: { frequency: Frequency; amountMinor: bigint; startsOn: string }, outer?: PoolClient): Promise<void> {
     if (!['daily', 'weekly', 'monthly', 'annual'].includes(plan.frequency)) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'premium.frequency_invalid', 'Unknown premium frequency.');
     if (plan.amountMinor <= 0n || plan.amountMinor % 100n !== 0n) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'premium.amount_invalid', 'Premiums are whole shillings above zero.');
     if (!isDate(plan.startsOn)) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'premium.start_invalid', 'Give the start date as YYYY-MM-DD.');
@@ -58,7 +58,7 @@ export class PolicyTracksService {
       }
       await this.outbox.enqueue(tx, { topic: 'premium_schedule.set', aggregateType: 'policy_link', aggregateId: linkId, payload: { frequency: plan.frequency, amountMinor: plan.amountMinor.toString(), startsOn: plan.startsOn } });
       await this.audit(tx, actor.userId, 'premium_schedule.set', linkId);
-    });
+    }, outer);
   }
 
   /** Records what the insurer says about cover. The database checks the change is allowed. */
@@ -66,6 +66,7 @@ export class PolicyTracksService {
     linkId: string,
     actor: InsurerActor,
     event: { status: 'active' | 'lapsed' | 'ended'; coveredUntil?: string; effectiveOn: string; insurerReference?: string },
+    outer?: PoolClient,
   ): Promise<void> {
     if (!['active', 'lapsed', 'ended'].includes(event.status)) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'cover.status_invalid', 'Unknown cover status.');
     if (!isDate(event.effectiveOn)) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'cover.date_invalid', 'Give the effective date as YYYY-MM-DD.');
@@ -86,7 +87,7 @@ export class PolicyTracksService {
       }
       await this.outbox.enqueue(tx, { topic: `cover.${event.status}`, aggregateType: 'policy_link', aggregateId: linkId, payload: { status: event.status, coveredUntil: event.coveredUntil ?? null, effectiveOn: event.effectiveOn } });
       await this.audit(tx, actor.userId, `cover.${event.status}`, linkId);
-    });
+    }, outer);
   }
 
   async listForCustomer(customerId: string, now = new Date()): Promise<PolicyTracksView[]> {
@@ -182,7 +183,9 @@ export class PolicyTracksService {
     );
   }
 
-  private async inTransaction<T>(fn: (tx: PoolClient) => Promise<T>): Promise<T> {
+  /** Uses the caller's transaction when given one (the insurer portal's scoped one). */
+  private async inTransaction<T>(fn: (tx: PoolClient) => Promise<T>, outer?: PoolClient): Promise<T> {
+    if (outer) return fn(outer);
     const tx = await this.pool.connect();
     try {
       await tx.query('begin');

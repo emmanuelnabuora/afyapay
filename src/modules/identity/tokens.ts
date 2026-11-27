@@ -38,7 +38,8 @@ export function newRefreshToken(): string {
   return randomBytes(32).toString('base64url');
 }
 
-export function signAccessToken(claims: Omit<AccessClaims, 'iat' | 'exp'>, ttlSeconds: number, secret = authSecret(), now = Date.now()): string {
+/** Signs any short-lived token. `typ` keeps customer, insurer staff and step-up tokens apart. */
+export function signToken<T extends { typ: string }>(claims: T, ttlSeconds: number, secret = authSecret(), now = Date.now()): string {
   const iat = Math.floor(now / 1000);
   const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const payload = b64url(JSON.stringify({ ...claims, iat, exp: iat + ttlSeconds }));
@@ -46,7 +47,16 @@ export function signAccessToken(claims: Omit<AccessClaims, 'iat' | 'exp'>, ttlSe
   return `${header}.${payload}.${sig}`;
 }
 
+export function signAccessToken(claims: Omit<AccessClaims, 'iat' | 'exp'>, ttlSeconds: number, secret = authSecret(), now = Date.now()): string {
+  return signToken(claims, ttlSeconds, secret, now);
+}
+
 export function verifyAccessToken(token: string, secret = authSecret(), now = Date.now()): AccessClaims | null {
+  return verifyToken<AccessClaims>(token, 'customer', secret, now);
+}
+
+/** Verifies signature, algorithm, type and expiry. Returns null on any failure. */
+export function verifyToken<T extends { typ: string; exp: number }>(token: string, typ: string, secret = authSecret(), now = Date.now()): T | null {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   const [header, payload, sig] = parts;
@@ -56,8 +66,8 @@ export function verifyAccessToken(token: string, secret = authSecret(), now = Da
   try {
     const h = JSON.parse(Buffer.from(header, 'base64url').toString());
     if (h.alg !== 'HS256') return null;
-    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString()) as AccessClaims;
-    if (claims.typ !== 'customer' || typeof claims.exp !== 'number' || claims.exp <= Math.floor(now / 1000)) return null;
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString()) as T;
+    if (claims.typ !== typ || typeof claims.exp !== 'number' || claims.exp <= Math.floor(now / 1000)) return null;
     return claims;
   } catch {
     return null;

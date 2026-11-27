@@ -1,5 +1,6 @@
 /**
- * Seeds the fictional sandbox insurers and their simulated M-Pesa paybills. Safe to run repeatedly. Refuses to run
+ * Seeds the fictional sandbox insurers, their simulated M-Pesa paybills and
+ * synthetic staff users. Safe to run repeatedly. Refuses to run
  * outside development, test and staging.
  */
 import { Client } from 'pg';
@@ -25,6 +26,16 @@ export async function seedSandbox(connectionString: string): Promise<number> {
          on conflict (insurer_id) where active do nothing`,
         [ins.code],
       );
+      // Synthetic staff, one per role. They set up an authenticator on first sign-in.
+      const slug = ins.code.toLowerCase();
+      for (const role of ['viewer', 'operator', 'approver']) {
+        await client.query(
+          `insert into insurer.insurer_user (insurer_id, email, display_name, role)
+           select id, $2, $3, $4 from insurer.insurer where code = $1
+           on conflict (email) do nothing`,
+          [ins.code, `${role}.${slug}@sandbox.test`, `Synthetic ${role} (${ins.code})`, role],
+        );
+      }
       n++;
     }
     return n;

@@ -103,7 +103,7 @@ export class PolicyLinkService {
    * The insurer confirms or rejects a pending link. Called from the insurer
    * portal or statement import (E7); never from a customer request.
    */
-  async decide(linkId: string, decision: 'confirmed' | 'rejected', insurerActor: { insurerId: string; userId: string }, reason?: string): Promise<PolicyLinkView> {
+  async decide(linkId: string, decision: 'confirmed' | 'rejected', insurerActor: { insurerId: string; userId: string }, reason?: string, tx?: PoolClient): Promise<PolicyLinkView> {
     return this.inTransaction(async (tx) => {
       const { rows } = await tx.query<{ status: LinkStatus; insurer_id: string }>('select status, insurer_id from policy.policy_link where id = $1 for update', [linkId]);
       const link = rows[0];
@@ -120,7 +120,7 @@ export class PolicyLinkService {
       await this.outbox.enqueue(tx, { topic: `policy_link.${decision}`, aggregateType: 'policy_link', aggregateId: linkId, payload: { decision } });
       await this.audit(tx, 'insurer_user', insurerActor.userId, `policy_link.${decision}`, linkId);
       return (await this.getView(tx, linkId))!;
-    });
+    }, tx);
   }
 
   private async getView(db: Pool | PoolClient, linkId: string): Promise<PolicyLinkView | null> {
@@ -143,7 +143,9 @@ export class PolicyLinkService {
     );
   }
 
-  private async inTransaction<T>(fn: (tx: PoolClient) => Promise<T>): Promise<T> {
+  /** Uses the caller's transaction when given one (the insurer portal's scoped one). */
+  private async inTransaction<T>(fn: (tx: PoolClient) => Promise<T>, outer?: PoolClient): Promise<T> {
+    if (outer) return fn(outer);
     const tx = await this.pool.connect();
     try {
       await tx.query('begin');
