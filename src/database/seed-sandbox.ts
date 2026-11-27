@@ -38,9 +38,45 @@ export async function seedSandbox(connectionString: string): Promise<number> {
       }
       n++;
     }
+    await seedStaff(client);
     return n;
   } finally {
     await client.end();
+  }
+}
+
+/**
+ * Synthetic AfyaPay staff. The first two super administrators are set up
+ * directly (the database allows this only while fewer than two exist); every
+ * other role goes through an approval request that the second one approves.
+ */
+async function seedStaff(client: Client): Promise<void> {
+  await client.query('begin');
+  try {
+    await client.query("select pg_advisory_xact_lock(hashtext('seed-staff'))");
+    const ids: Record<string, string> = {};
+    for (const [key, name] of [['super-admin-1', 'Synthetic super administrator 1'], ['super-admin-2', 'Synthetic super administrator 2'], ['compliance', 'Synthetic compliance'], ['finance', 'Synthetic finance'], ['support', 'Synthetic support']]) {
+      await client.query("insert into governance.staff_user (email, display_name, created_by) values ($1, $2, 'seed') on conflict (email) do nothing", [`${key}@sandbox.test`, name]);
+      ids[key] = (await client.query<{ id: string }>('select id from governance.staff_user where email = $1', [`${key}@sandbox.test`])).rows[0].id;
+    }
+    for (const key of ['super-admin-1', 'super-admin-2']) {
+      const has = await client.query<{ has: boolean }>("select governance.has_role($1, 'super_admin') as has", [ids[key]]);
+      if (!has.rows[0].has) await client.query("insert into governance.staff_role_event (staff_user_id, role, action) values ($1, 'super_admin', 'grant')", [ids[key]]);
+    }
+    for (const role of ['compliance', 'finance', 'support']) {
+      const has = await client.query<{ has: boolean }>('select governance.has_role($1, $2) as has', [ids[role], role]);
+      if (has.rows[0].has) continue;
+      const req = await client.query<{ id: string }>(
+        "insert into governance.approval_request (kind, payload, reason, proposed_by) values ('role_grant', $1, 'Synthetic sandbox staff', $2) returning id",
+        [{ staffUserId: ids[role], role }, ids['super-admin-1']],
+      );
+      await client.query("update governance.approval_request set status = 'approved', decided_by = $2, decided_at = now() where id = $1", [req.rows[0].id, ids['super-admin-2']]);
+      await client.query("insert into governance.staff_role_event (staff_user_id, role, action, approval_request_id) values ($1, $2, 'grant', $3)", [ids[role], role, req.rows[0].id]);
+    }
+    await client.query('commit');
+  } catch (err) {
+    await client.query('rollback');
+    throw err;
   }
 }
 

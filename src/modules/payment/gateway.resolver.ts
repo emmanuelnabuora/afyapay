@@ -7,7 +7,9 @@ export type CollectionMode = 'simulated' | 'daraja_sandbox' | 'daraja_live';
 
 /**
  * Picks the M-Pesa gateway for an insurer's collection account. Live Daraja is
- * refused until launch gate G4 is passed and the founder approves production.
+ * refused until the founder approves production. Even then it also needs
+ * governance.live_money_allowed(): the live-money switch on (an approved
+ * request) and launch gates G1 to G5 closed.
  * Sandbox Daraja needs DARAJA_CONSUMER_KEY and DARAJA_CONSUMER_SECRET; passkeys
  * are read from environment variables named by the account's passkey_ref.
  */
