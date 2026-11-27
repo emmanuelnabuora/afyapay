@@ -11,6 +11,32 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+      # Packages that must move together get one pull request.
+      nestjs:
+        patterns: ["@nestjs/*"]
+        update-types: [major]
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+        update-types: [major]
+      vite:
+        patterns: ["vite", "@vitejs/*"]
+        update-types: [major]
+    # Framework major versions wait until after the pilot (founder decision,
+    # 27 Nov 2026), when they get a planned upgrade with full testing. Minor and
+    # patch releases, which carry most security fixes, still arrive weekly.
+    ignore:
+      - dependency-name: "@nestjs/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vite"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@vitejs/*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
