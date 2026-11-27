@@ -51,11 +51,13 @@ export function mountWebApp(app: Express, dist = WEB_DIST): boolean {
   const isApp = (req: Request) => (req.method === 'GET' || req.method === 'HEAD') && !isApi(req);
   app.use((req: Request, res: Response, next: NextFunction) => (isApp(req) ? headers(req, res, next) : next()));
   // Answer /insurer and /admin ourselves, so the redirect carries the full CSP
-  // (the static server's own redirect sets a bare one).
+  // (the static server's own redirect sets a bare one). The target is a fixed
+  // path, never built from the request; the apps use hash routes, so no query
+  // string needs carrying over.
+  const SLASHED: Record<string, string> = { '/insurer': '/insurer/', '/admin': '/admin/' };
   app.use((req: Request, res: Response, next: NextFunction) => {
-    if (!isApp(req) || (req.path !== '/insurer' && req.path !== '/admin')) return next();
-    const query = req.originalUrl.slice(req.path.length);
-    res.redirect(301, `${req.path}/${query}`);
+    const target = isApp(req) ? SLASHED[req.path] : undefined;
+    return target ? res.redirect(301, target) : next();
   });
   app.use(serveStatic(dist, { redirect: false, index: 'index.html', maxAge: '1h', setHeaders: (res, path) => path.endsWith('index.html') && res.setHeader('Cache-Control', 'no-cache') }));
   const under = (req: Request, dir: string) => req.path === `/${dir}` || req.path.startsWith(`/${dir}/`);
