@@ -4,7 +4,7 @@ import { api, ApiError, setToken } from './api';
 type Step = { kind: 'email' } | { kind: 'code'; challengeId: string } | { kind: 'enrol'; ticket: string; secret: string; url: string } | { kind: 'mfa'; ticket: string };
 
 /** Email code, then an authenticator app code. First sign-in sets the authenticator up. */
-export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
+export function SignIn({ onSignedIn, authBase, title }: { onSignedIn: () => void; authBase: '/insurer-auth' | '/admin-auth'; title: string }) {
   const [step, setStep] = useState<Step>({ kind: 'email' });
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -27,17 +27,17 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
     e.preventDefault();
     run(async () => {
       if (step.kind === 'email') {
-        const r = await api<{ challengeId: string }>('/insurer-auth/email-code', { method: 'POST', body: { email } });
+        const r = await api<{ challengeId: string }>(`${authBase}/email-code`, { method: 'POST', body: { email } });
         setStep({ kind: 'code', challengeId: r.challengeId });
       } else if (step.kind === 'code') {
-        const r = await api<{ mfaTicket: string; enrolled: boolean }>('/insurer-auth/email-code/verify', { method: 'POST', body: { challengeId: step.challengeId, code } });
+        const r = await api<{ mfaTicket: string; enrolled: boolean }>(`${authBase}/email-code/verify`, { method: 'POST', body: { challengeId: step.challengeId, code } });
         if (r.enrolled) setStep({ kind: 'mfa', ticket: r.mfaTicket });
         else {
-          const e2 = await api<{ secret: string; otpauthUrl: string }>('/insurer-auth/mfa/enrol', { method: 'POST', body: { mfaTicket: r.mfaTicket } });
+          const e2 = await api<{ secret: string; otpauthUrl: string }>(`${authBase}/mfa/enrol`, { method: 'POST', body: { mfaTicket: r.mfaTicket } });
           setStep({ kind: 'enrol', ticket: r.mfaTicket, secret: e2.secret, url: e2.otpauthUrl });
         }
       } else {
-        const r = await api<{ accessToken: string; expiresIn: number }>('/insurer-auth/mfa/verify', { method: 'POST', body: { mfaTicket: step.ticket, code } });
+        const r = await api<{ accessToken: string; expiresIn: number }>(`${authBase}/mfa/verify`, { method: 'POST', body: { mfaTicket: step.ticket, code } });
         setToken(r.accessToken, r.expiresIn);
         onSignedIn();
       }
@@ -47,7 +47,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
 
   return (
     <section className="card narrow signin">
-      <h1>Insurer portal</h1>
+      <h1>{title}</h1>
       <form onSubmit={submit}>
         {step.kind === 'email' && (
           <>

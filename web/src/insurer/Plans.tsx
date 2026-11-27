@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { api, kes, toMinor, when } from './api';
-import { ErrorLine, Table, useAction } from './ui';
+import { api, kes, toMinor, when } from '../staff/api';
+import { ErrorLine, Table, useAction } from '../staff/ui';
 
 interface Plan {
   id: string; code: string; name: string; coverType: string; summary: string; minHousehold: number; maxHousehold: number;

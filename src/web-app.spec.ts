@@ -11,6 +11,8 @@ describe('mountWebApp', () => {
   writeFileSync(join(dist, 'app.js'), 'console.log(1)');
   mkdirSync(join(dist, 'insurer'));
   writeFileSync(join(dist, 'insurer', 'index.html'), '<!doctype html><title>Insurer portal</title>');
+  mkdirSync(join(dist, 'admin'));
+  writeFileSync(join(dist, 'admin', 'index.html'), '<!doctype html><title>Staff admin</title>');
   const app = express();
   mountWebApp(app, dist);
   app.get('/v1/health', (_req, res) => res.json({ ok: true }));
@@ -41,6 +43,8 @@ describe('mountWebApp', () => {
     expect(res.headers['content-security-policy']).toContain("default-src 'self'");
     expect((await request(app).get('/insurer/requests').expect(200)).text).toContain('Insurer portal');
     expect((await request(app).get('/insurers-page').expect(200)).text).toContain('AfyaPay');
+    expect((await request(app).get('/admin/').expect(200)).text).toContain('Staff admin');
+    expect((await request(app).get('/admin/gates').expect(200)).text).toContain('Staff admin');
   });
 
   it('leaves the API alone', async () => {

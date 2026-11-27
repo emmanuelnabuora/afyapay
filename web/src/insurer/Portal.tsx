@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { api, clearToken, hasToken, whenExpired } from './api';
+import { api, clearToken, hasToken, whenExpired } from '../staff/api';
 import { CoverFiles } from './CoverFiles';
 import { Interests } from './Interests';
 import { Payments } from './Payments';
 import { Plans } from './Plans';
 import { Requests } from './Requests';
-import { SignIn } from './SignIn';
+import { SignIn } from '../staff/SignIn';
 import { Statements } from './Statements';
 
 export interface Me {
@@ -93,7 +93,7 @@ export function Portal() {
         {!signedIn ? (
           <>
             {expired && <p className="notice narrow-notice" role="status">Your session ended. Sign in again to continue.</p>}
-            <SignIn onSignedIn={() => { setExpired(false); setSignedIn(true); }} />
+            <SignIn authBase="/insurer-auth" title="Insurer portal" onSignedIn={() => { setExpired(false); setSignedIn(true); }} />
           </>
         ) : !me ? (
           <p className="muted">Loading…</p>

@@ -1,10 +1,17 @@
 /**
- * Insurer portal API client. Staff tokens last 30 minutes and have no refresh
- * token, so the token sits in sessionStorage: it survives a reload in this tab
- * only, and is gone when the tab closes. A 401 sends the user back to sign in.
+ * API client for the staff apps (insurer portal and AfyaPay admin). Staff
+ * tokens last 30 minutes and have no refresh token, so the token sits in
+ * sessionStorage: it survives a reload in this tab only, and is gone when the
+ * tab closes. A 401 sends the user back to sign in.
  */
-const KEY = 'afyapay.insurer';
-let token: string | null = read();
+let KEY = 'afyapay.staff';
+let token: string | null = null;
+
+/** Each app keeps its own token. Call once before rendering. */
+export function setTokenKey(key: string) {
+  KEY = key;
+  token = read();
+}
 let onExpired: () => void = () => undefined;
 
 function read(): string | null {
@@ -68,10 +75,11 @@ async function parse<T>(res: Response): Promise<T> {
   return data as T;
 }
 
-/** Sends one file as multipart field "file", with an Idempotency-Key. */
-export async function upload<T>(path: string, file: File): Promise<T> {
+/** Sends a multipart form: optional file as field "file", plus any text fields. With an Idempotency-Key. */
+export async function upload<T>(path: string, file: File | null, fields: Record<string, string> = {}): Promise<T> {
   const form = new FormData();
-  form.append('file', file);
+  for (const [k, v] of Object.entries(fields)) form.append(k, v);
+  if (file) form.append('file', file);
   const headers: Record<string, string> = { 'Idempotency-Key': crypto.randomUUID() };
   if (token) headers.Authorization = `Bearer ${token}`;
   return parse<T>(await fetch(`/v1${path}`, { method: 'POST', headers, body: form }));
