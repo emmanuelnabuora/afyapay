@@ -247,6 +247,27 @@ export class PaymentService {
     return v;
   }
 
+  /** The latest payment for a policy, for the money track. */
+  async latestForPolicy(policyLinkId: string): Promise<{ status: PaymentStatus; amountMinor: bigint; failureMessage: string | null; at: Date } | null> {
+    const { rows } = await this.pool.query<{ status: PaymentStatus; amount_minor: string; failure_code: string | null; updated_at: Date }>(
+      'select status, amount_minor::text, failure_code, updated_at from payment.payment_intent where policy_link_id = $1 order by created_at desc limit 1',
+      [policyLinkId],
+    );
+    const r = rows[0];
+    return r ? { status: r.status, amountMinor: BigInt(r.amount_minor), failureMessage: r.failure_code ? failureMessage(r.failure_code) : null, at: r.updated_at } : null;
+  }
+
+  /** Total of confirmed, ledger-backed payments for a policy since a moment, in minor units. */
+  async confirmedTotalForPolicy(policyLinkId: string, since: Date): Promise<bigint> {
+    const { rows } = await this.pool.query<{ s: string }>(
+      `select coalesce(sum(r.amount_minor), 0)::text as s
+         from payment.payment_result r join payment.payment_intent p on p.id = r.payment_intent_id
+        where p.policy_link_id = $1 and r.result_code = 0 and r.journal_entry_id is not null and r.created_at >= $2`,
+      [policyLinkId, since],
+    );
+    return BigInt(rows[0].s);
+  }
+
   private async view(db: Pool | PoolClient, id: string, customerId?: string): Promise<PaymentView | null> {
     const { rows } = await db.query(
       `select p.id, p.policy_link_id, l.policy_number, i.code, i.name, p.amount_minor::text as amount_minor, p.status, p.failure_code,
