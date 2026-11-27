@@ -21,10 +21,10 @@ The ZAP baseline is a passive scan. It is not a penetration test and does not re
 
 ## ZAP baseline findings (first run, 27 Nov 2026)
 
-No failures. Three low-risk warnings remain, each with a planned fix:
+There were no failures and three low-risk warnings. All three are now fixed:
 
-| Warning | Where | Plan |
+| Warning | Where | Fix |
 |---|---|---|
-| Sub Resource Integrity missing (90003) | The Google Fonts stylesheet on all three apps | Self-host the Inter font. This also keeps customer IP addresses away from Google, and lets the CSP drop the Google origins. |
-| Cross-Origin-Embedder-Policy missing (90004) | All three apps | Add `require-corp` once the font is self-hosted; today it would block the Google font. |
-| CSP directive with no fallback (10055) | The 301 redirect from `/insurer` and `/admin` to the path with a trailing slash | That redirect comes from the static file server, which sets its own CSP. Make our app answer the redirect itself with the full policy. |
+| Sub Resource Integrity missing (90003) | Google Fonts stylesheet | Inter and Space Grotesk are now self-hosted (`@fontsource-variable`). Pages make no third-party requests, so no customer IP addresses go to Google, and the CSP allows only our own origin. |
+| Cross-Origin-Embedder-Policy missing (90004) | All responses | `Cross-Origin-Embedder-Policy: require-corp` is now sent. |
+| CSP directive with no fallback (10055) | 301 redirect from `/insurer` and `/admin` | The app now sends this redirect itself, with the full CSP. |
