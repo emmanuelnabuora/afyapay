@@ -1,8 +1,14 @@
 import { Module } from '@nestjs/common';
+import { PlatformModule } from '../platform/platform.module';
+import { InboxService } from './inbox.service';
 
 /**
- * inbox domain module. Owns the `inbox` database schema; other modules
- * reach its data only through this module's exported services.
+ * inbox domain module. Owns the `inbox` schema: raw provider callbacks, stored
+ * first and de-duplicated by provider reference.
  */
-@Module({})
+@Module({
+  imports: [PlatformModule],
+  providers: [InboxService],
+  exports: [InboxService],
+})
 export class InboxModule {}

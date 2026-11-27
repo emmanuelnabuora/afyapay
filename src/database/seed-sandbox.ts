@@ -1,5 +1,5 @@
 /**
- * Seeds the fictional sandbox insurers. Safe to run repeatedly. Refuses to run
+ * Seeds the fictional sandbox insurers and their simulated M-Pesa paybills. Safe to run repeatedly. Refuses to run
  * outside development, test and staging.
  */
 import { Client } from 'pg';
@@ -17,6 +17,13 @@ export async function seedSandbox(connectionString: string): Promise<number> {
         `insert into insurer.insurer (code, name, stage) values ($1, $2, 'sandbox')
          on conflict (code) do update set name = excluded.name`,
         [ins.code, ins.name],
+      );
+      // Safaricom's public sandbox shortcode, with the simulated gateway: no money moves.
+      await client.query(
+        `insert into insurer.collection_account (insurer_id, shortcode, mode)
+         select id, '174379', 'simulated' from insurer.insurer where code = $1
+         on conflict (insurer_id) where active do nothing`,
+        [ins.code],
       );
       n++;
     }
