@@ -37,14 +37,16 @@ export class StaffAuthGuard implements CanActivate {
     if (!claims) throw new UnauthorizedException({ code: 'auth.required', message: 'Sign in to AfyaPay admin.' });
     const ip = clientIp(req.ip);
     if (!(await staffIpAllowed(this.pool, ip))) throw new ForbiddenException({ code: 'staff.ip_not_allowed', message: 'Staff access is not allowed from this network.' });
-    const { rows } = await this.pool.query<{ email: string; status: string; enrolled: boolean; roles: StaffRole[] }>(
-      `select u.email, u.status, u.totp_enrolled_at is not null as enrolled, array(select r from unnest(array['support', 'finance', 'compliance', 'super_admin']) r where governance.has_role(u.id, r)) as roles
+    const { rows } = await this.pool.query<{ email: string; status: string; enrolled: boolean; ended: boolean; roles: StaffRole[] }>(
+      `select u.email, u.status, u.totp_enrolled_at is not null as enrolled,
+              coalesce($2 <= floor(extract(epoch from u.sessions_valid_after)), false) as ended, array(select r from unnest(array['support', 'finance', 'compliance', 'super_admin']) r where governance.has_role(u.id, r)) as roles
          from governance.staff_user u where u.id = $1`,
-      [claims.sub],
+      [claims.sub, claims.iat],
     );
     const u = rows[0];
-    // An authenticator reset clears enrolment, which also ends every session the account had.
-    if (!u || u.status !== 'active' || !u.enrolled) throw new UnauthorizedException({ code: 'auth.required', message: 'Sign in to AfyaPay admin.' });
+    // A suspension or an authenticator reset ends every session the account had,
+    // and those sessions stay ended after the account is reactivated.
+    if (!u || u.status !== 'active' || !u.enrolled || u.ended) throw new UnauthorizedException({ code: 'auth.required', message: 'Sign in to AfyaPay admin.' });
     const allowed = this.reflector.getAllAndOverride<StaffRole[] | undefined>(ROLES, [context.getHandler(), context.getClass()]);
     if (allowed && !allowed.some((r) => u.roles.includes(r))) {
       throw new ForbiddenException({ code: 'staff.role_required', message: `This needs one of these roles: ${allowed.join(', ')}.` });
