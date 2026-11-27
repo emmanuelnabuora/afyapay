@@ -1,8 +1,12 @@
 import { Module } from '@nestjs/common';
+import { LedgerService } from './ledger.service';
 
 /**
- * ledger domain module. Owns the `ledger` database schema; other modules
- * reach its data only through this module's exported services.
+ * ledger domain module. Owns the `ledger` schema: the Collections memo book
+ * (money that went straight to insurers) and the Revenue book.
  */
-@Module({})
+@Module({
+  providers: [LedgerService],
+  exports: [LedgerService],
+})
 export class LedgerModule {}
