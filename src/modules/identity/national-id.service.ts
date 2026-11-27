@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { Pool } from 'pg';
-import { encryptField, lookupHash, maskNationalId, normaliseNationalId } from '../../common/field-crypto';
+import { encryptField, lookupHash, lookupHashes, maskNationalId, normaliseNationalId } from '../../common/field-crypto';
 import { PG_POOL } from '../../database/database.module';
 
 const fail = (status: HttpStatus, code: string, message: string) => new HttpException({ code, message }, status);
@@ -21,7 +21,7 @@ export class NationalIdService {
     const tx = await this.pool.connect();
     try {
       await tx.query('begin');
-      const taken = await tx.query('select 1 from identity.national_id where id_hmac = $1 and customer_id <> $2', [hmac, customerId]);
+      const taken = await tx.query('select 1 from identity.national_id where id_hmac = any($1) and customer_id <> $2', [lookupHashes(id, 'national-id'), customerId]);
       if (taken.rowCount) throw fail(HttpStatus.CONFLICT, 'national_id.unavailable', 'This ID number cannot be added to your account. Contact support.');
       const prior = await tx.query('select 1 from identity.national_id where customer_id = $1', [customerId]);
       await tx.query(

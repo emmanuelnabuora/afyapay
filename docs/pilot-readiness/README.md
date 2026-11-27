@@ -11,11 +11,11 @@ Gate G5 (security readiness) needs the evidence below before the pilot. Only com
 | Automated web security scan | Done, in CI on every PR and weekly | OWASP ZAP baseline of `/`, `/insurer/`, `/admin/` and the API (`.github/workflows/security-scan.yml`, rules in `.zap/rules.tsv`) |
 | Load test at 10x pilot volume | Done | [load-test.md](load-test.md) |
 | Backup and restore drill | Done in development; repeat in production | [restore-drill.md](restore-drill.md) |
-| External penetration test | Waiting on the founder's OK to spend | Quotes, then report and fixes |
-| Incident response runbook | To do | |
-| Secret rotation runbook | To do | |
-| Support playbook (customers and insurers) | To do | |
-| Production environment plan | To do; the region needs counsel's advice, and nothing is deployed without the founder's approval | |
+| External penetration test | Founder approved getting quotes (27 Nov 2026) | Scope for quotes is shared separately; report and fixes to follow |
+| Incident response runbook | Drafted; rehearse before the pilot | [incident-response.md](../runbooks/incident-response.md) |
+| Secret rotation runbook | Done; the app reads old keys during a rotation, and `rotate-keys` re-encrypts | [secret-rotation.md](../runbooks/secret-rotation.md), `src/database/rotate-keys.ts`, `test/key-rotation.int.spec.ts` |
+| Support playbook (customers and insurers) | Drafted | [support-playbook.md](../runbooks/support-playbook.md) |
+| Production environment plan | Drafted; the region needs counsel's advice, and nothing is deployed without the founder's approval | [production-environment-plan.md](production-environment-plan.md) |
 
 The ZAP baseline is a passive scan. It is not a penetration test and does not replace one.
 

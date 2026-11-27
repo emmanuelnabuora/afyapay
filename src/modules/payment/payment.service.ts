@@ -38,12 +38,17 @@ export function parseAmountMinor(input: unknown): bigint | null {
   return BigInt(s);
 }
 
+/**
+ * MPESA_CALLBACK_SECRET_PREVIOUS is accepted too while a rotation is under way,
+ * so callbacks for prompts sent before the change still arrive.
+ */
 export function callbackSecretMatches(given: string): boolean {
-  const expected = process.env.MPESA_CALLBACK_SECRET ?? '';
-  if (expected.length < 16) return false;
   const a = Buffer.from(given);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
+  return [process.env.MPESA_CALLBACK_SECRET, process.env.MPESA_CALLBACK_SECRET_PREVIOUS].some((expected) => {
+    if (!expected || expected.length < 16) return false;
+    const b = Buffer.from(expected);
+    return a.length === b.length && timingSafeEqual(a, b);
+  });
 }
 
 /**

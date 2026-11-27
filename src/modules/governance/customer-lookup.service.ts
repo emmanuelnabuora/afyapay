@@ -1,6 +1,6 @@
 import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { Pool, PoolClient } from 'pg';
-import { decryptField, lookupHash, maskNationalId, normaliseNationalId } from '../../common/field-crypto';
+import { decryptField, lookupHashes, maskNationalId, normaliseNationalId } from '../../common/field-crypto';
 import { PG_POOL } from '../../database/database.module';
 import { normaliseKenyanMobile } from '../identity/phone';
 import { normalisePolicyNumber } from '../policy/policy-link.service';
@@ -49,7 +49,7 @@ export class CustomerLookupService {
     } else if (typeof query.nationalId === 'string' && query.nationalId) {
       const nid = normaliseNationalId(query.nationalId);
       if (!nid) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'lookup.national_id_invalid', 'Enter the full national ID number: 7 or 8 digits.');
-      ids = (await this.pool.query<{ id: string }>('select customer_id as id from identity.national_id where id_hmac = $1', [lookupHash(nid, 'national-id')])).rows.map((r) => r.id);
+      ids = (await this.pool.query<{ id: string }>('select customer_id as id from identity.national_id where id_hmac = any($1)', [lookupHashes(nid, 'national-id')])).rows.map((r) => r.id);
       by = 'national_id';
     } else if (typeof query.customerId === 'string' && UUID.test(query.customerId)) {
       ids = (await this.pool.query<{ id: string }>('select id from identity.customer where id = $1', [query.customerId])).rows.map((r) => r.id);

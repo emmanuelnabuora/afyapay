@@ -11,8 +11,17 @@ function rawKey(): string {
   if (!raw || raw.length < 32) throw new Error('PII_ENCRYPTION_KEY must be set to at least 32 characters');
   return raw;
 }
-const encKey = () => createHash('sha256').update(`enc:${rawKey()}`).digest();
-const lookupKey = () => createHash('sha256').update(`lookup:${rawKey()}`).digest();
+/**
+ * During a key rotation PII_ENCRYPTION_KEY_PREVIOUS holds the old key, so data
+ * written under it still reads until `rotate-keys` has re-encrypted every row
+ * (see docs/runbooks/secret-rotation.md). New data always uses the current key.
+ */
+function rawKeys(): string[] {
+  const previous = process.env.PII_ENCRYPTION_KEY_PREVIOUS;
+  return previous && previous.length >= 32 ? [rawKey(), previous] : [rawKey()];
+}
+const encKey = (raw = rawKey()) => createHash('sha256').update(`enc:${raw}`).digest();
+const lookupKey = (raw = rawKey()) => createHash('sha256').update(`lookup:${raw}`).digest();
 
 export function encryptField(plain: string): string {
   const iv = randomBytes(12);
@@ -21,16 +30,43 @@ export function encryptField(plain: string): string {
   return ['f1', iv.toString('base64url'), cipher.getAuthTag().toString('base64url'), enc.toString('base64url')].join('.');
 }
 
+/** Decrypts with the current key, or the previous one during a rotation. */
 export function decryptField(stored: string): string {
   const [v, iv, tag, enc] = stored.split('.');
   if (v !== 'f1') throw new Error('Unknown field format');
-  const decipher = createDecipheriv('aes-256-gcm', encKey(), Buffer.from(iv, 'base64url'));
-  decipher.setAuthTag(Buffer.from(tag, 'base64url'));
-  return Buffer.concat([decipher.update(Buffer.from(enc, 'base64url')), decipher.final()]).toString('utf8');
+  for (const raw of rawKeys()) {
+    try {
+      const decipher = createDecipheriv('aes-256-gcm', encKey(raw), Buffer.from(iv, 'base64url'));
+      decipher.setAuthTag(Buffer.from(tag, 'base64url'));
+      return Buffer.concat([decipher.update(Buffer.from(enc, 'base64url')), decipher.final()]).toString('utf8');
+    } catch {
+      // wrong key: try the next one
+    }
+  }
+  throw new Error('Field could not be decrypted with the current or previous key');
+}
+
+/** True when a stored value decrypts with the current key (no re-encryption needed). */
+export function isCurrentField(stored: string): boolean {
+  const [, iv, tag, enc] = stored.split('.');
+  try {
+    const decipher = createDecipheriv('aes-256-gcm', encKey(), Buffer.from(iv, 'base64url'));
+    decipher.setAuthTag(Buffer.from(tag, 'base64url'));
+    decipher.update(Buffer.from(enc, 'base64url'));
+    decipher.final();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function lookupHash(value: string, purpose: string): string {
   return createHmac('sha256', lookupKey()).update(`${purpose}:${value}`).digest('hex');
+}
+
+/** The lookup hash under every key in use, for finding rows during a rotation. */
+export function lookupHashes(value: string, purpose: string): string[] {
+  return rawKeys().map((raw) => createHmac('sha256', lookupKey(raw)).update(`${purpose}:${value}`).digest('hex'));
 }
 
 /** Kenyan national ID numbers are 7 or 8 digits. Spaces are ignored. */
