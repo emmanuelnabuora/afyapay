@@ -14,7 +14,11 @@ export interface UploadedEvidence {
   buffer: Buffer;
 }
 
-type Kind = 'role_grant' | 'role_revoke' | 'setting_change' | 'customer_unmask';
+type Kind = 'role_grant' | 'role_revoke' | 'setting_change' | 'customer_unmask' | 'account_action';
+export type AccountType = 'staff_user' | 'insurer_user';
+export type AccountAction = 'reset_authenticator' | 'reactivate';
+const ACCOUNT_TABLE: Record<AccountType, string> = { staff_user: 'governance.staff_user', insurer_user: 'insurer.insurer_user' };
+const isAccountType = (t: unknown): t is AccountType => t === 'staff_user' || t === 'insurer_user';
 
 /** A rule the database refused (raised with errcode P0001) becomes a clear 403 instead of a 500. */
 async function guarded<T>(fn: () => Promise<T>): Promise<T> {
@@ -70,6 +74,54 @@ export class GovernanceService {
     });
   }
 
+  // ---- accounts (staff and insurer users) --------------------------------
+
+  async listInsurerUsers() {
+    const { rows } = await this.pool.query(
+      `select u.id, u.email, u.display_name, u.role, u.status, u.totp_enrolled_at is not null as mfa_enrolled, u.created_at, i.name as insurer
+         from insurer.insurer_user u join insurer.insurer i on i.id = u.insurer_id order by i.name, u.email`,
+    );
+    return rows.map((r) => ({ id: r.id, email: r.email, displayName: r.display_name, insurer: r.insurer, role: r.role, status: r.status, mfaEnrolled: r.mfa_enrolled, createdAt: r.created_at }));
+  }
+
+  /**
+   * Suspends a staff or insurer account at once. It only takes access away,
+   * so it needs no second approver; the guards read status on every request.
+   */
+  async suspend(actor: StaffUser, type: unknown, id: string, body: { reason?: unknown }) {
+    const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+    if (reason.length < 5 || reason.length > 500) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'approval.reason_required', 'Say why, in 5 to 500 characters.');
+    if (!isAccountType(type) || !UUID.test(id)) throw fail(HttpStatus.NOT_FOUND, 'account.not_found', 'Account not found.');
+    if (type === 'staff_user' && id === actor.id) throw fail(HttpStatus.FORBIDDEN, 'account.own', 'You cannot suspend your own account.');
+    return this.tx(async (tx) => {
+      const { rows } = await tx.query<{ status: string }>(`select status from ${ACCOUNT_TABLE[type]} where id = $1 for update`, [id]);
+      if (!rows[0]) throw fail(HttpStatus.NOT_FOUND, 'account.not_found', 'Account not found.');
+      if (rows[0].status === 'suspended') throw fail(HttpStatus.CONFLICT, 'account.no_change', 'This account is already suspended.');
+      if (type === 'staff_user') {
+        const admins = await tx.query<{ n: number; is_admin: boolean }>(
+          "select (select count(*)::int from governance.staff_user u where governance.has_role(u.id, 'super_admin') and u.status = 'active') as n, governance.has_role($1, 'super_admin') as is_admin",
+          [id],
+        );
+        if (admins.rows[0].is_admin && admins.rows[0].n <= 2) throw fail(HttpStatus.CONFLICT, 'approval.last_admins', 'At least two active super administrators must remain.');
+      }
+      await tx.query(`update ${ACCOUNT_TABLE[type]} set status = 'suspended' where id = $1`, [id]);
+      await this.audit(tx, actor, 'account.suspended', type, id, { reason });
+      return { id, type, status: 'suspended' };
+    });
+  }
+
+  /** Resetting an authenticator or reactivating an account gives access back, so a super administrator approves it. */
+  async proposeAccountAction(actor: StaffUser, type: unknown, id: string, body: { action?: unknown; reason?: unknown }) {
+    if (!isAccountType(type) || !UUID.test(id)) throw fail(HttpStatus.NOT_FOUND, 'account.not_found', 'Account not found.');
+    if (body.action !== 'reset_authenticator' && body.action !== 'reactivate') throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'approval.payload_invalid', 'action must be reset_authenticator or reactivate.');
+    if (type === 'staff_user' && id === actor.id) throw fail(HttpStatus.FORBIDDEN, 'account.own', 'Ask someone else to request this for your account.');
+    const { rows } = await this.pool.query<{ status: string; enrolled: boolean }>(`select status, totp_enrolled_at is not null as enrolled from ${ACCOUNT_TABLE[type]} where id = $1`, [id]);
+    if (!rows[0]) throw fail(HttpStatus.NOT_FOUND, 'account.not_found', 'Account not found.');
+    if (body.action === 'reactivate' && rows[0].status !== 'suspended') throw fail(HttpStatus.CONFLICT, 'approval.no_change', 'This account is not suspended.');
+    if (body.action === 'reset_authenticator' && !rows[0].enrolled) throw fail(HttpStatus.CONFLICT, 'approval.no_change', 'This account has no authenticator set up yet.');
+    return this.propose(actor, { kind: 'account_action', payload: { accountType: type, accountId: id, action: body.action }, reason: body.reason });
+  }
+
   // ---- approval requests -------------------------------------------------
 
   async propose(actor: StaffUser, body: { kind?: unknown; payload?: unknown; reason?: unknown }) {
@@ -88,10 +140,15 @@ export class GovernanceService {
       payload = { staffUserId: p.staffUserId, role: p.role };
     } else if (kind === 'setting_change') {
       payload = { key: p.key, value: await this.checkSetting(p.key, p.value) };
+    } else if (kind === 'account_action') {
+      if (!isAccountType(p.accountType) || typeof p.accountId !== 'string' || !UUID.test(p.accountId) || (p.action !== 'reset_authenticator' && p.action !== 'reactivate')) {
+        throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'approval.payload_invalid', 'Request account actions from the Accounts page.');
+      }
+      payload = { accountType: p.accountType, accountId: p.accountId, action: p.action };
     } else if (kind === 'customer_unmask') {
       throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'approval.kind_invalid', 'Ask to see a full phone number from the customer lookup.');
     } else {
-      throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'approval.kind_invalid', 'kind must be role_grant, role_revoke or setting_change.');
+      throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'approval.kind_invalid', 'kind must be role_grant, role_revoke, setting_change or account_action.');
     }
     return this.tx(async (tx) => {
       const { rows } = await tx.query<{ id: string }>('insert into governance.approval_request (kind, payload, reason, proposed_by) values ($1, $2, $3, $4) returning id', [kind, payload, reason, actor.id]);
@@ -115,6 +172,14 @@ export class GovernanceService {
       await guarded(() => tx.query("update governance.approval_request set status = 'approved', decided_by = $2, decision_note = $3, decided_at = now() where id = $1", [id, actor.id, note]));
       if (req.kind === 'customer_unmask') {
         // Nothing to apply: the approval lets the proposer see the number for 30 minutes.
+      } else if (req.kind === 'account_action') {
+        const table = ACCOUNT_TABLE[req.payload.accountType as AccountType];
+        const sql =
+          req.payload.action === 'reactivate'
+            ? `update ${table} set status = 'active' where id = $1 and status = 'suspended'`
+            : `update ${table} set totp_secret_enc = null, totp_enrolled_at = null, last_totp_step = null where id = $1`;
+        const done = await tx.query(sql, [req.payload.accountId]);
+        if (!done.rowCount) throw fail(HttpStatus.CONFLICT, 'approval.no_change', 'Nothing to change: the account is already in that state.');
       } else if (req.kind === 'setting_change') {
         if (req.payload.key === 'live_money_enabled' && req.payload.value === true) await this.checkLiveMoneyGates(tx);
         if (req.payload.key === 'plan_buying_enabled' && req.payload.value === true) await this.checkBuyingGate(tx);
@@ -165,6 +230,7 @@ export class GovernanceService {
       const deciders = req.kind === 'customer_unmask' ? ['compliance', 'super_admin'] : ['super_admin'];
       if (!actor.roles.some((r) => deciders.includes(r))) throw fail(HttpStatus.FORBIDDEN, 'staff.role_required', `Only ${deciders.join(' or ')} can decide this request.`);
       if ((req.kind === 'role_grant' || req.kind === 'role_revoke') && req.payload.staffUserId === actor.id) throw fail(HttpStatus.FORBIDDEN, 'approval.own_roles', 'Nobody can decide a change to their own roles.');
+      if (req.kind === 'account_action' && req.payload.accountId === actor.id) throw fail(HttpStatus.FORBIDDEN, 'approval.own_account', 'Nobody can decide an action on their own account.');
       await fn(tx, req);
       return this.viewRequest(tx, id);
     });

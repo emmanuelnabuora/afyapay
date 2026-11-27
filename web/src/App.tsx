@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { hasSession, signOut } from './api';
+import { api, hasSession, signOut } from './api';
 import { Compare } from './screens/Compare';
 import { FindPlans } from './screens/FindPlans';
 import { Home } from './screens/Home';
@@ -76,7 +76,28 @@ export function App() {
         </nav>
       </header>
       <main className="page">{content}</main>
-      <footer className="foot">Payments go straight from M-Pesa to your insurer. AfyaPay never holds your money.</footer>
+      <footer className="foot">
+        <p>Payments go straight from M-Pesa to your insurer. AfyaPay never holds your money.</p>
+        <SupportContact />
+      </footer>
     </div>
+  );
+}
+
+/** Shows how to reach support, when it is set up. Never asks for a PIN. */
+function SupportContact() {
+  const [c, setC] = useState<{ phone: string | null; email: string | null } | null>(null);
+  useEffect(() => {
+    api<{ phone: string | null; email: string | null }>('/support', { auth: false }).then(setC).catch(() => undefined);
+  }, []);
+  if (!c || (!c.phone && !c.email)) return null;
+  return (
+    <p className="support-line">
+      Need help? {c.phone && <a href={`tel:${c.phone.replace(/\s/g, '')}`}>{c.phone}</a>}
+      {c.phone && c.email && ' · '}
+      {c.email && <a href={`mailto:${c.email}`}>{c.email}</a>}
+      <br />
+      We will never ask for your M-Pesa PIN.
+    </p>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, when } from '../staff/api';
 import { ErrorLine, Table, useAction } from '../staff/ui';
+import { AccountActions } from './AccountActions';
 import { has, Me, ROLE_LABEL, Staff } from './types';
 
 /** AfyaPay staff accounts. Roles change only through an approved request. */
@@ -17,17 +18,15 @@ export function StaffList({ me }: { me: Me }) {
   return (
     <>
       <h1>Staff</h1>
-      <p className="muted">Everyone signs in with an email code and an authenticator app. A new account has no role until a role request is approved on the Approvals page.</p>
+      <p className="muted">Everyone signs in with an email code and an authenticator app. A new account has no role until a role request is approved on the Approvals page. Suspending ends access at once; resetting an authenticator or reactivating needs a super administrator's approval.</p>
       {!rows ? <p className="muted">Loading…</p> : (
-        <Table head={<tr><th>Email</th><th>Name</th><th>Roles</th><th>Authenticator</th><th>Status</th><th>Added</th></tr>}>
+        <Table head={<tr><th>Person</th><th>Roles</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr>}>
           {rows.map((s) => (
             <tr key={s.id}>
-              <td>{s.email}{s.id === me.id && <span className="badge small neutral">You</span>}</td>
-              <td>{s.displayName}</td>
+              <td className="wrap">{s.email}{s.id === me.id && <span className="badge small neutral">You</span>}<div className="hint">{s.displayName}, added {when(s.createdAt)}</div></td>
               <td>{s.roles.map((r) => ROLE_LABEL[r]).join(', ') || 'None'}</td>
-              <td>{s.mfaEnrolled ? 'Set up' : 'Not yet'}</td>
-              <td>{s.status}</td>
-              <td>{when(s.createdAt)}</td>
+              <td>{s.status === 'suspended' ? <span className="badge bad small">Suspended</span> : 'Active'}<div className="hint">{s.mfaEnrolled ? 'Authenticator set up' : 'No authenticator yet'}</div></td>
+              <td className="actions"><AccountActions me={me} type="staff_user" account={s} onDone={() => setTick(tick + 1)} /></td>
             </tr>
           ))}
         </Table>

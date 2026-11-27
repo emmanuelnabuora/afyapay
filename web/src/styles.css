@@ -57,6 +57,9 @@ a { color: var(--teal); }
 .bar-nav a { text-decoration: none; }
 .page { flex: 1; padding: 8px 16px 24px; }
 .foot { color: var(--muted); font-size: 0.8rem; padding: 16px; text-align: center; }
+.foot p { margin: 0; }
+.foot .support-line { margin-top: 8px; }
+.foot a { color: var(--teal); }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
 .card.narrow { max-width: 440px; margin-left: auto; margin-right: auto; }
 .card.empty { text-align: center; }

@@ -28,9 +28,9 @@ Contact details live in the team's password manager, not in Git.
 1. **Open a log.** Create a dated note with the time, who is involved and what is known. Add to it as you go, with times in East Africa Time.
 2. **Stop the harm, without destroying evidence.** Pick what fits from the list below.
    - **Payments wrong or suspicious:** turn off live money. This is a `live_money_enabled = false` request in the staff admin, approved by a second super administrator. If that is too slow, a super administrator suspends the service on the host, or revokes the Daraja credentials in the Safaricom portal. Money only ever moves from customer to insurer through M-Pesa, so stopping AfyaPay never strands funds.
-   - **Staff or insurer account compromised:** an engineer sets the account's `status` to `suspended`. The guard checks status on every request, so this takes effect at once. Then rotate any secret the account could have seen; see [secret-rotation.md](secret-rotation.md).
+   - **Staff or insurer account compromised:** compliance or a super administrator chooses **Suspend** in the staff admin (Staff or Insurer users). Access ends at once, because both portals check status on every request. Then rotate any secret the account could have seen; see [secret-rotation.md](secret-rotation.md).
    - **A secret leaked:** rotate it now with [secret-rotation.md](secret-rotation.md).
-   - **Attack traffic:** block it at the host or edge. AfyaPay has no general API rate limit yet.
+   - **Attack traffic:** block it at the host or edge. The app's own rate limit (`RATE_LIMIT_PER_MINUTE`, `RATE_LIMIT_ANON_PER_MINUTE`) can be lowered with a restart.
 3. **Keep the evidence.**
    - Do not delete logs, rows or files.
    - Take a database backup.

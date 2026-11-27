@@ -5,6 +5,7 @@ import { Approvals } from './Approvals';
 import { Audit } from './Audit';
 import { Customers } from './Customers';
 import { Gates } from './Gates';
+import { InsurerUsers } from './InsurerUsers';
 import { Overview } from './Overview';
 import { StaffList } from './StaffList';
 import { has, Me, Role, ROLE_LABEL } from './types';
@@ -14,7 +15,8 @@ const TABS: { path: string; label: string; roles: Role[] }[] = [
   { path: 'customers', label: 'Customers', roles: ['support', 'finance', 'compliance', 'super_admin'] },
   { path: 'approvals', label: 'Approvals', roles: ['compliance', 'super_admin'] },
   { path: 'gates', label: 'Launch gates', roles: ['support', 'finance', 'compliance', 'super_admin'] },
-  { path: 'staff', label: 'Staff', roles: ['compliance', 'super_admin'] },
+  { path: 'staff', label: 'Staff', roles: ['support', 'compliance', 'super_admin'] },
+  { path: 'insurer-users', label: 'Insurer users', roles: ['support', 'compliance', 'super_admin'] },
   { path: 'audit', label: 'Audit log', roles: ['compliance', 'super_admin'] },
 ];
 
@@ -91,6 +93,8 @@ export function Admin() {
           <Gates me={me} code={route[1]} />
         ) : tab === 'staff' ? (
           <StaffList me={me} />
+        ) : tab === 'insurer-users' ? (
+          <InsurerUsers me={me} />
         ) : tab === 'audit' ? (
           <Audit />
         ) : (

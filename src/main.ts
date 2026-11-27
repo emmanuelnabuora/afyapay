@@ -4,6 +4,7 @@ import { AppModule } from './app.module';
 import { MaskingLogger } from './common/masking-logger';
 import { resolveEnvironment } from './environment';
 import { authSecret } from './modules/identity/tokens';
+import { applyRateLimit } from './rate-limit';
 import { applySecurityHeaders, mountWebApp } from './web-app';
 
 async function bootstrap(): Promise<void> {
@@ -13,6 +14,7 @@ async function bootstrap(): Promise<void> {
   // Render puts one proxy in front of the app; take the client address from it, for the staff IP allow-list.
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
   applySecurityHeaders(app.getHttpAdapter().getInstance());
+  applyRateLimit(app.getHttpAdapter().getInstance());
   mountWebApp(app.getHttpAdapter().getInstance()); // the web apps, when they have been built
   app.setGlobalPrefix('v1');
   app.enableShutdownHooks();

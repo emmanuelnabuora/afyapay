@@ -38,11 +38,11 @@ This playbook is for anyone answering AfyaPay support during the pilot. Support 
 
 | They say | Check | Do |
 |---|---|---|
-| "I can't sign in" or "lost my authenticator" | The user exists and is active. | Confirm who they are with their insurer's named administrator, not the caller alone. An engineer resets the authenticator so they enrol again, and logs it. |
+| "I can't sign in" or "lost my authenticator" | **Insurer users** page: the user exists and is active. | Confirm who they are with their insurer's named administrator, not the caller alone. Then choose **Reset authenticator…** and say how you confirmed them. A super administrator approves it on Approvals. The user sets up a new authenticator at their next sign-in, and their old sessions end. |
 | "Statement doesn't match" | Mismatches in the portal | Mismatches list lines with no matching M-Pesa receipt, or a different amount. The insurer checks their paybill export. AfyaPay finance helps if a line looks missing on our side. |
 | "Cover file won't go through" | Batch status | A file with more than 50 lines needs a second approver at the insurer. Check that both approvers have signed in. |
 | "A customer says they paid" | Payment by receipt code | Confirm from the payment record. The insurer's paybill statement is the source of truth for money received. |
-| "Add or remove a staff member" | Request from the insurer's named administrator | An engineer adds them with the right role (viewer, operator or approver), or suspends them at once. |
+| "Add or remove a staff member" | Request from the insurer's named administrator | **Remove:** compliance or a super administrator chooses **Suspend** on the Insurer users page; access ends at once. **Add:** an engineer adds them with the right role (viewer, operator or approver). |
 
 ## Handover and records
 
@@ -51,6 +51,6 @@ This playbook is for anyone answering AfyaPay support during the pilot. Support 
 
 ## Gaps to close before or during the pilot
 
-- Authenticator reset and staff add/suspend are engineer tasks today. A support action with a second approver would be safer.
+- Adding insurer users is still an engineer task.
 - Changing a phone number, and data subject requests, need a process agreed with counsel.
-- There is no in-app contact form yet. Publish a support phone number and email on the customer app before the pilot.
+- The customer app shows a support phone number and email once `SUPPORT_PHONE` and `SUPPORT_EMAIL` are set on the host. Set them before the pilot.

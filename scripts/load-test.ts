@@ -5,6 +5,7 @@
  * customer traffic at stepped rates and reports latency and errors.
  *
  *   BASE_URL=http://localhost:3000 DATABASE_URL=postgres://... npx ts-node scripts/load-test.ts
+ *   (start the server with RATE_LIMIT_ANON_PER_MINUTE=0: every request comes from one address)
  *   options: --customers 200 --stages 5,10,25,50 --seconds 60
  *
  * DATABASE_URL is used once, to add a synthetic insurer operator who confirms

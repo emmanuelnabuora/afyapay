@@ -68,3 +68,8 @@ textarea { width: 100%; font: inherit; color: var(--ink); background: var(--card
 .unmask .link-button { margin-left: 10px; }
 .unmask form { text-align: left; }
 .back { display: inline-block; margin-bottom: 12px; text-decoration: none; }
+.inline-form { text-align: left; min-width: 260px; white-space: normal; }
+.inline-form .actions, .grid td .actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; margin-top: 8px; }
+.grid td .actions { margin-top: 0; flex-wrap: nowrap; }
+.grid td .ok { white-space: normal; display: inline-block; max-width: 200px; text-align: right; }
+.grid td .hint { margin-top: 2px; }
