@@ -1,6 +1,8 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, StreamableFile, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { SkipIdempotency } from '../platform/idempotency.interceptor';
+import { CommandCentreService } from './command-centre.service';
+import { CustomerLookupService } from './customer-lookup.service';
 import { GovernanceService, UploadedEvidence } from './governance.service';
 import { StaffAuthGuard, StaffRequest, StaffRoles } from './staff-auth.guard';
 import { clientIp, StaffAuthService } from './staff-auth.service';
@@ -75,15 +77,16 @@ export class GovernanceController {
     return this.gov.listRequests(status);
   }
 
+  /** Role and setting requests need a super administrator; customer unmask requests also accept compliance. */
   @Post('approvals/:id/approve')
-  @StaffRoles('super_admin')
+  @StaffRoles('super_admin', 'compliance')
   @HttpCode(200)
   approve(@Req() req: StaffRequest, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     return this.gov.approve(req.staffUser!, id, body ?? {});
   }
 
   @Post('approvals/:id/reject')
-  @StaffRoles('super_admin')
+  @StaffRoles('super_admin', 'compliance')
   @HttpCode(200)
   reject(@Req() req: StaffRequest, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     return this.gov.reject(req.staffUser!, id, body ?? {});
@@ -149,5 +152,41 @@ export class GovernanceController {
   @HttpCode(200)
   verify(@Req() req: StaffRequest) {
     return this.gov.verifyAudit(req.staffUser!);
+  }
+}
+
+const ANY_STAFF_ROLE = ['support', 'finance', 'compliance', 'super_admin'] as const;
+
+@Controller('admin')
+@UseGuards(StaffAuthGuard)
+export class AdminOperationsController {
+  constructor(
+    private readonly lookup: CustomerLookupService,
+    private readonly centre: CommandCentreService,
+  ) {}
+
+  @Get('command-centre')
+  @StaffRoles(...ANY_STAFF_ROLE)
+  commandCentre() {
+    return this.centre.summary();
+  }
+
+  /** Exact match only: ?phone=, ?policyNumber= (optionally &insurerCode=) or ?customerId=. The phone number comes back masked. */
+  @Get('customers')
+  @StaffRoles(...ANY_STAFF_ROLE)
+  customers(@Req() req: StaffRequest, @Query() query: Record<string, unknown>) {
+    return this.lookup.lookup(req.staffUser!, query);
+  }
+
+  @Post('customers/:id/unmask-requests')
+  @StaffRoles(...ANY_STAFF_ROLE)
+  requestUnmask(@Req() req: StaffRequest, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return this.lookup.requestUnmask(req.staffUser!, id, body ?? {});
+  }
+
+  @Get('customers/:id/phone')
+  @StaffRoles(...ANY_STAFF_ROLE)
+  phone(@Req() req: StaffRequest, @Param('id') id: string, @Query('requestId') requestId?: string) {
+    return this.lookup.unmaskedPhone(req.staffUser!, id, requestId);
   }
 }

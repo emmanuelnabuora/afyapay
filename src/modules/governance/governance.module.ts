@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
-import { GovernanceController, StaffAuthController } from './governance.controller';
+import { CommandCentreService } from './command-centre.service';
+import { CustomerLookupService } from './customer-lookup.service';
+import { AdminOperationsController, GovernanceController, StaffAuthController } from './governance.controller';
 import { GovernanceService } from './governance.service';
 import { StaffAuthGuard } from './staff-auth.guard';
 import { StaffAuthService } from './staff-auth.service';
@@ -10,8 +12,8 @@ import { StaffAuthService } from './staff-auth.service';
  * audit log.
  */
 @Module({
-  controllers: [StaffAuthController, GovernanceController],
-  providers: [StaffAuthService, StaffAuthGuard, GovernanceService],
+  controllers: [StaffAuthController, GovernanceController, AdminOperationsController],
+  providers: [StaffAuthService, StaffAuthGuard, GovernanceService, CustomerLookupService, CommandCentreService],
   exports: [StaffAuthGuard, GovernanceService],
 })
 export class GovernanceModule {}
