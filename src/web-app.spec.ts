@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
@@ -9,6 +9,8 @@ describe('mountWebApp', () => {
   const dist = mkdtempSync(join(tmpdir(), 'afyapay-web-'));
   writeFileSync(join(dist, 'index.html'), '<!doctype html><title>AfyaPay</title>');
   writeFileSync(join(dist, 'app.js'), 'console.log(1)');
+  mkdirSync(join(dist, 'insurer'));
+  writeFileSync(join(dist, 'insurer', 'index.html'), '<!doctype html><title>Insurer portal</title>');
   const app = express();
   mountWebApp(app, dist);
   app.get('/v1/health', (_req, res) => res.json({ ok: true }));
@@ -30,6 +32,15 @@ describe('mountWebApp', () => {
     expect((await request(app).get('/pay/abc').expect(200)).text).toContain('AfyaPay');
     expect((await request(app).get('/app.js').expect(200)).text).toContain('console.log');
     await request(app).get('/missing.js').expect(404);
+  });
+
+  it('serves the insurer portal under /insurer', async () => {
+    await request(app).get('/insurer').expect(301);
+    const res = await request(app).get('/insurer/').expect(200);
+    expect(res.text).toContain('Insurer portal');
+    expect(res.headers['content-security-policy']).toContain("default-src 'self'");
+    expect((await request(app).get('/insurer/requests').expect(200)).text).toContain('Insurer portal');
+    expect((await request(app).get('/insurers-page').expect(200)).text).toContain('AfyaPay');
   });
 
   it('leaves the API alone', async () => {

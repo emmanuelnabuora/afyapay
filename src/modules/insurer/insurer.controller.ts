@@ -48,8 +48,7 @@ export class InsurerPortalController {
 
   @Get('me')
   me(@Req() req: InsurerRequest) {
-    const u = req.insurerUser!;
-    return { userId: u.sub, insurerId: u.ins, role: u.role };
+    return this.portal.me(req.insurerUser!);
   }
 
   @Get('policy-links')

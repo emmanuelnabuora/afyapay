@@ -77,7 +77,9 @@ describe('insurer staff sign-in', () => {
     await http().post('/insurer-auth/mfa/verify').send({ mfaTicket: t.mfaTicket, code: '000000' }).expect(401);
     const code = totpAt(enrol.body.secret, currentStep());
     const ok = await http().post('/insurer-auth/mfa/verify').send({ mfaTicket: t.mfaTicket, code }).expect(200);
-    expect((await as(ok.body.accessToken).get('/insurer/me').expect(200)).body.role).toBe('approver');
+    const me = (await as(ok.body.accessToken).get('/insurer/me').expect(200)).body;
+    expect(me.role).toBe('approver');
+    expect(me.insurer).toEqual({ code: 'PWANI', name: expect.stringContaining('Pwani Mutual') });
 
     // A used code cannot be used again, and a second set-up is refused.
     const again = await emailTicket('approver.pwani@sandbox.test');
