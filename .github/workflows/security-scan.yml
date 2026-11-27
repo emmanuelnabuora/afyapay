@@ -40,7 +40,7 @@ jobs:
       PII_ENCRYPTION_KEY: scan-only-pii-encryption-key-not-real-00
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
