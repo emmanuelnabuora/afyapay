@@ -127,6 +127,7 @@ export class PaymentService {
           [intent.id, res.merchantRequestId, res.checkoutRequestId, res.responseCode],
         );
         await tx.query("update payment.payment_intent set status = 'prompt_sent', updated_at = now(), version = version + 1 where id = $1", [intent.id]);
+        await this.outbox.enqueue(tx, { topic: 'payment.prompt_sent', aggregateType: 'payment_intent', aggregateId: intent.id, payload: {} });
       });
       await this.jobs.enqueue(
         CONFIRM_STK_JOB,
@@ -135,10 +136,15 @@ export class PaymentService {
       );
     } catch (err) {
       this.log.warn(`STK push failed for intent ${intent.id}: ${(err as Error).message}`);
-      await this.pool.query(
-        "update payment.payment_intent set status = 'failed', failure_code = 'prompt_not_sent', updated_at = now(), version = version + 1 where id = $1 and status = 'created'",
-        [intent.id],
-      );
+      await this.inTransaction(async (tx) => {
+        const res = await tx.query(
+          "update payment.payment_intent set status = 'failed', failure_code = 'prompt_not_sent', updated_at = now(), version = version + 1 where id = $1 and status = 'created'",
+          [intent.id],
+        );
+        if (res.rowCount) {
+          await this.outbox.enqueue(tx, { topic: 'payment.failed', aggregateType: 'payment_intent', aggregateId: intent.id, payload: { failureCode: 'prompt_not_sent' } });
+        }
+      });
     }
     return (await this.view(this.pool, intent.id))!;
   }
@@ -173,6 +179,7 @@ export class PaymentService {
       if (status.state === 'pending') {
         if (Date.now() - p.created_at.getTime() < PROMPT_TIMEOUT_MS) return 'pending';
         await this.setStatus(tx, p.id, 'expired', 'no_response');
+        await this.outbox.enqueue(tx, { topic: 'payment.failed', aggregateType: 'payment_intent', aggregateId: p.id, payload: { failureCode: 'no_response' } });
         await this.audit(tx, 'system', 'payment-worker', 'payment.expired', p.id);
         return 'done';
       }
@@ -245,6 +252,19 @@ export class PaymentService {
     const v = /^[0-9a-f-]{36}$/.test(id) ? await this.view(this.pool, id, customerId) : null;
     if (!v) throw fail(HttpStatus.NOT_FOUND, 'payment.not_found', 'Payment not found.');
     return v;
+  }
+
+  /** What a customer message about this payment needs to say. */
+  async messageFacts(intentId: string): Promise<{ customerId: string; amountMinor: bigint; insurerName: string; failureCode: string | null; mpesaReceipt: string | null } | null> {
+    const { rows } = await this.pool.query<{ customer_id: string; amount_minor: string; name: string; failure_code: string | null; mpesa_receipt: string | null }>(
+      `select p.customer_id, p.amount_minor::text, i.name, p.failure_code, r.mpesa_receipt
+         from payment.payment_intent p join insurer.insurer i on i.id = p.insurer_id
+         left join payment.payment_result r on r.payment_intent_id = p.id
+        where p.id = $1`,
+      [intentId],
+    );
+    const r = rows[0];
+    return r ? { customerId: r.customer_id, amountMinor: BigInt(r.amount_minor), insurerName: r.name, failureCode: r.failure_code, mpesaReceipt: r.mpesa_receipt } : null;
   }
 
   /** The latest payment for a policy, for the money track. */

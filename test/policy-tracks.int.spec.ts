@@ -9,9 +9,8 @@ import { PG_POOL } from '../src/database/database.module';
 import { seedSandbox } from '../src/database/seed-sandbox';
 import { PRE_LAUNCH_SYNTHETIC_CODE } from '../src/modules/identity/auth.service';
 import { SHARE_WITH_INSURER_CONSENT } from '../src/modules/identity/consent';
-import { CONFIRM_STK_JOB } from '../src/modules/inbox/inbox.service';
 import { PaymentWorker } from '../src/modules/payment/payment.worker';
-import { SIMULATED_CALLBACK_JOB } from '../src/modules/payment/simulated.gateway';
+import { settlePayment } from './helpers/settle';
 import { PolicyLinkService } from '../src/modules/policy/policy-link.service';
 import { InsurerActor, PolicyTracksService } from '../src/modules/policy/policy-tracks.service';
 import { eatDate } from '../src/modules/policy/tracks';
@@ -87,14 +86,7 @@ describe('three tracks per policy', () => {
     expect((await tracksOf(token, linkId)).money).toMatchObject({ state: 'payment_pending', label: 'Waiting for M-Pesa' });
 
     const checkout = (await pool.query('select checkout_request_id from payment.stk_request where payment_intent_id = $1', [started.body.id])).rows[0].checkout_request_id;
-    for (let i = 0; i < 4; i++) {
-      await pool.query(
-        `update platform.job set run_at = now() where status = 'queued' and kind = any($1)
-           and (payload->>'checkoutRequestId' = $2 or payload->'Body'->'stkCallback'->>'CheckoutRequestID' = $2)`,
-        [[CONFIRM_STK_JOB, SIMULATED_CALLBACK_JOB], checkout],
-      );
-      await app.get(PaymentWorker).runOnce();
-    }
+    await settlePayment(pool, app.get(PaymentWorker), checkout);
 
     const t = await tracksOf(token, linkId);
     expect(t.money).toMatchObject({ state: 'payment_succeeded', label: 'KES 1,000 paid to Pwani Mutual (fictional)', source: 'mpesa' });

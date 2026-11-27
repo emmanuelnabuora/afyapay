@@ -105,6 +105,18 @@ export class PolicyTracksService {
     return this.tracks(linkId, now);
   }
 
+  /** Every confirmed policy that has a premium plan, with its owner, for reminders. */
+  async allWithPlans(now = new Date()): Promise<Array<{ customerId: string; tracks: PolicyTracksView }>> {
+    const { rows } = await this.pool.query<{ id: string; customer_id: string }>(
+      `select l.id, l.customer_id from policy.policy_link l
+        where l.status = 'confirmed' and exists (select 1 from policy.premium_schedule s where s.policy_link_id = l.id)
+        order by l.id`,
+    );
+    const out: Array<{ customerId: string; tracks: PolicyTracksView }> = [];
+    for (const r of rows) out.push({ customerId: r.customer_id, tracks: await this.tracks(r.id, now) });
+    return out;
+  }
+
   private async tracks(linkId: string, now: Date): Promise<PolicyTracksView> {
     const today = eatDate(now);
     const link = (

@@ -7,10 +7,10 @@ import { PG_POOL } from '../src/database/database.module';
 import { seedSandbox } from '../src/database/seed-sandbox';
 import { PRE_LAUNCH_SYNTHETIC_CODE } from '../src/modules/identity/auth.service';
 import { SHARE_WITH_INSURER_CONSENT } from '../src/modules/identity/consent';
-import { CONFIRM_STK_JOB } from '../src/modules/inbox/inbox.service';
 import { PaymentService } from '../src/modules/payment/payment.service';
 import { PaymentWorker } from '../src/modules/payment/payment.worker';
 import { SIMULATED_CALLBACK_JOB } from '../src/modules/payment/simulated.gateway';
+import { settlePayment } from './helpers/settle';
 import { PolicyLinkService } from '../src/modules/policy/policy-link.service';
 
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL;
@@ -51,27 +51,17 @@ async function checkoutIdFor(paymentId: string): Promise<string> {
   return rows[0].checkout_request_id;
 }
 
-/** Makes this payment's queued jobs due now and runs the worker until they are done. */
-async function settle(checkoutRequestId: string) {
-  for (let i = 0; i < 5; i++) {
-    const due = await pool.query(
-      `update platform.job set run_at = now() where status = 'queued' and kind = any($1)
-         and (payload->>'checkoutRequestId' = $2 or payload->'Body'->'stkCallback'->>'CheckoutRequestID' = $2)
-       returning id`,
-      [[CONFIRM_STK_JOB, SIMULATED_CALLBACK_JOB], checkoutRequestId],
-    );
-    if (due.rowCount === 0) return;
-    await worker.runOnce();
-  }
-}
+const settle = (checkoutRequestId: string, rounds?: number) => settlePayment(pool, worker, checkoutRequestId, rounds);
 
-async function balance(code: string): Promise<bigint> {
+/** The ledger lines posted for one payment, as [account code, amount]. Other test files post to the same accounts in parallel. */
+async function linesFor(paymentId: string): Promise<Array<[string, string]>> {
   const { rows } = await pool.query(
-    `select coalesce(sum(l.amount_minor), 0)::text as s from ledger.journal_line l
-       join ledger.ledger_account a on a.id = l.account_id where a.book = 'collections' and a.code = $1`,
-    [code],
+    `select a.code, l.amount_minor::text as amount from ledger.journal_entry e
+       join ledger.journal_line l on l.entry_id = e.id join ledger.ledger_account a on a.id = l.account_id
+      where e.idempotency_key = $1 order by l.amount_minor desc`,
+    [`payment:${paymentId}`],
   );
-  return BigInt(rows[0].s);
+  return rows.map((r) => [r.code, r.amount]);
 }
 
 beforeAll(async () => {
@@ -91,7 +81,6 @@ afterAll(async () => {
 describe('M-Pesa premium payments (simulated gateway)', () => {
   it('sends a prompt to the insurer paybill, confirms by status query, posts one ledger entry and issues a receipt', async () => {
     const { token, linkId } = await customerWithPolicy('0700000301', 'SYN-PM-PAY-0301');
-    const before = await balance('insurer:PWANI:mpesa_received');
 
     const started = await pay(token, { policyLinkId: linkId, amountMinor: '250000' }).expect(201);
     expect(started.body).toMatchObject({ status: 'prompt_sent', amountMinor: '250000', currency: 'KES', policyNumber: 'SYN-PM-PAY-0301', receipt: null });
@@ -105,12 +94,12 @@ describe('M-Pesa premium payments (simulated gateway)', () => {
     expect(receipt.body.status).toBe('confirmed');
     expect(receipt.body.receipt.mpesaReceipt).toMatch(/^SIM[0-9A-F]{7}$/);
 
-    expect((await balance('insurer:PWANI:mpesa_received')) - before).toBe(250000n);
+    expect(await linesFor(started.body.id)).toEqual([['insurer:PWANI:mpesa_received', '250000'], ['insurer:PWANI:premium_collected', '-250000']]);
     const result = await pool.query('select confirmed_via, amount_minor::text, journal_entry_id from payment.payment_result where payment_intent_id = $1', [started.body.id]);
     expect(result.rows[0]).toMatchObject({ confirmed_via: 'status_query', amount_minor: '250000' });
     expect(result.rows[0].journal_entry_id).toBeTruthy();
-    const outbox = await pool.query('select topic from platform.outbox_event where aggregate_id = $1', [started.body.id]);
-    expect(outbox.rows.map((r) => r.topic)).toEqual(['payment.confirmed']);
+    const outbox = await pool.query('select topic from platform.outbox_event where aggregate_id = $1 order by created_at', [started.body.id]);
+    expect(outbox.rows.map((r) => r.topic)).toEqual(['payment.prompt_sent', 'payment.confirmed']);
     const audit = await pool.query('select action from governance.audit_event where subject_id = $1 order by occurred_at', [started.body.id]);
     expect(audit.rows.map((r) => r.action)).toEqual(['payment.started', 'payment.confirmed']);
 
@@ -140,7 +129,6 @@ describe('M-Pesa premium payments (simulated gateway)', () => {
 
   it('ignores repeated callbacks and never posts the same payment twice', async () => {
     const { token, linkId } = await customerWithPolicy('0700000303', 'SYN-PM-PAY-0303');
-    const before = await balance('insurer:PWANI:mpesa_received');
     const started = await pay(token, { policyLinkId: linkId, amountMinor: 70000 }).expect(201);
     const checkoutId = await checkoutIdFor(started.body.id);
     await settle(checkoutId);
@@ -151,7 +139,7 @@ describe('M-Pesa premium payments (simulated gateway)', () => {
     }
     await app.get(PaymentWorker).runOnce();
 
-    expect((await balance('insurer:PWANI:mpesa_received')) - before).toBe(70000n);
+    expect(await linesFor(started.body.id)).toEqual([['insurer:PWANI:mpesa_received', '70000'], ['insurer:PWANI:premium_collected', '-70000']]);
     const callbacks = await pool.query('select 1 from inbox.provider_callback where provider_reference = $1', [checkoutId]);
     expect(callbacks.rowCount).toBe(1);
   });
@@ -164,7 +152,7 @@ describe('M-Pesa premium payments (simulated gateway)', () => {
 
     // Only the safety-net status query runs. Before the timeout it waits for
     // the receipt; after it, a paid result without a receipt goes to review.
-    await settle(checkoutId);
+    await settle(checkoutId, 3);
     expect((await http().get(`/me/payments/${started.body.id}`).set('Authorization', `Bearer ${token}`).expect(200)).body.status).toBe('prompt_sent');
     await pool.query("update payment.payment_intent set created_at = now() - interval '11 minutes' where id = $1", [started.body.id]);
     await settle(checkoutId);

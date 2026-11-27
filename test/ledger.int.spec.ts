@@ -113,14 +113,16 @@ describe('ledger', () => {
 describe('audit log', () => {
   it('chains each event to the previous one and cannot be edited', async () => {
     const insert = (action: string) =>
-      db.query<{ prev_hash: string | null; hash: string }>(
+      db.query<{ seq: string; prev_hash: string | null; hash: string }>(
         `insert into governance.audit_event (actor_type, actor_id, action, subject_type, subject_id)
-         values ('staff_user', 'synthetic-staff-1', $1, 'journal_entry', 'e-1') returning prev_hash, hash`,
+         values ('staff_user', 'synthetic-staff-1', $1, 'journal_entry', 'e-1') returning seq, prev_hash, hash`,
         [action],
       );
-    const first = (await insert('entry.proposed')).rows[0];
+    await insert('entry.proposed');
     const second = (await insert('entry.approved')).rows[0];
-    expect(second.prev_hash).toBe(first.hash);
+    // Other test files write audit events in parallel, so compare with whichever event came just before.
+    const before = await db.query<{ hash: string }>('select hash from governance.audit_event where seq < $1 order by seq desc limit 1', [second.seq]);
+    expect(second.prev_hash).toBe(before.rows[0].hash);
     expect(second.hash).toMatch(/^[0-9a-f]{64}$/);
     await expect(db.query("update governance.audit_event set action = 'x'")).rejects.toThrow(/append-only/);
     await expect(db.query('delete from governance.audit_event')).rejects.toThrow(/append-only/);
