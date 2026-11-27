@@ -42,3 +42,18 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
 .stats dt { font-size: 0.8rem; color: var(--muted); }
 .stats dd { margin: 4px 0 0; font-family: 'Space Grotesk', Inter, sans-serif; font-size: 1.4rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .table-wrap { position: relative; }
+.top-gap { margin-top: 12px !important; }
+.card h2 { margin-top: 0; }
+details.card summary { cursor: pointer; font-weight: 600; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.badge.small { font-size: 0.75rem; padding: 2px 8px; margin-left: 6px; }
+.grid td.wrap { white-space: normal; min-width: 260px; }
+textarea { width: 100%; font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-height: 96px; }
+.county-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 4px 12px; max-height: 220px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.county-grid label, .check { display: flex; gap: 8px; align-items: center; margin: 4px 0; font-weight: 400; }
+.county-grid input, .check input { width: 18px; height: 18px; accent-color: var(--teal); }
+.plan-form { max-width: 720px; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 480px) { .plan-form .two { grid-template-columns: 1fr; } }
+.grid td details ul { max-height: 200px; overflow-y: auto; margin: 6px 0 0; }
+.portal-main > h2, .portal-main .row-between h2 { margin-top: 28px; }
