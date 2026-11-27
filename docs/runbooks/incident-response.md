@@ -28,7 +28,11 @@ Contact details live in the team's password manager, not in Git.
 1. **Open a log.** Create a dated note with the time, who is involved and what is known. Add to it as you go, with times in East Africa Time.
 2. **Stop the harm, without destroying evidence.** Pick what fits from the list below.
    - **Payments wrong or suspicious:** turn off live money. This is a `live_money_enabled = false` request in the staff admin, approved by a second super administrator. If that is too slow, a super administrator suspends the service on the host, or revokes the Daraja credentials in the Safaricom portal. Money only ever moves from customer to insurer through M-Pesa, so stopping AfyaPay never strands funds.
-   - **Staff or insurer account compromised:** compliance or a super administrator chooses **Suspend** in the staff admin (Staff or Insurer users). Access ends at once, because both portals check status on every request. Then rotate any secret the account could have seen; see [secret-rotation.md](secret-rotation.md).
+   - **Staff or insurer account compromised:** compliance or a super administrator chooses **Suspend** in the staff admin (Staff or Insurer users). Access ends at once, because both portals check status on every request. Sessions open before the suspension stay ended, even after the account is reactivated.
+     - Filter the audit log by the account to see what it did.
+     - If the device held their email, the insurer, or we for our own staff, must end that email session too.
+     - If the device may hold their authenticator, also reset the authenticator before reactivating.
+     - Then rotate any secret the account could have seen; see [secret-rotation.md](secret-rotation.md).
    - **A secret leaked:** rotate it now with [secret-rotation.md](secret-rotation.md).
    - **Attack traffic:** block it at the host or edge. The app's own rate limit (`RATE_LIMIT_PER_MINUTE`, `RATE_LIMIT_ANON_PER_MINUTE`) can be lowered with a restart.
 3. **Keep the evidence.**
@@ -61,4 +65,6 @@ Rehearse one scenario before the pilot, and every quarter after that. Good scena
 - M-Pesa callbacks stop arriving.
 - `PII_ENCRYPTION_KEY` is pasted in a chat.
 
-Record each rehearsal with the date and what was learned.
+Record each rehearsal with the date and what was learned, in [rehearsals/](rehearsals/).
+
+- 27 Nov 2026: [stolen insurer laptop](rehearsals/2026-11-27-stolen-insurer-laptop.md), technical drill done (one gap found and fixed); team tabletop still to run.

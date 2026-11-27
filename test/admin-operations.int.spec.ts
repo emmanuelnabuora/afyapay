@@ -279,6 +279,35 @@ describe('account actions', () => {
     await as(support).post(`/admin/accounts/insurer_user/${op.id}/requests`).send({ action: 'reset_authenticator', reason: 'Lost phone again' }).expect(409); // nothing to reset
   });
 
+  it('keeps a stolen session ended after the account is reactivated or re-enrolled (incident drill)', async () => {
+    const op = await insurerUser();
+    const admin = await staff('super_admin');
+    const stolen = op.token; // still on the stolen laptop
+    await as(compliance).post(`/admin/accounts/insurer_user/${op.id}/suspend`).send({ reason: 'Laptop reported stolen' }).expect(200);
+    await insurerMe(stolen).expect(401);
+    for (const action of ['reset_authenticator', 'reactivate']) {
+      const req = (await as(support).post(`/admin/accounts/insurer_user/${op.id}/requests`).send({ action, reason: 'New laptop issued, confirmed by Pwani admin' }).expect(201)).body;
+      await as(admin).post(`/admin/approvals/${req.id}/approve`).send({}).expect(200);
+    }
+    // The operator enrols a new authenticator on the new laptop and signs in.
+    await new Promise((r) => setTimeout(r, 1100)); // tokens carry whole seconds
+    const ch = await http().post('/insurer-auth/email-code').send({ email: op.email }).expect(202);
+    const t = (await http().post('/insurer-auth/email-code/verify').send({ challengeId: ch.body.challengeId, code: PRE_LAUNCH_STAFF_EMAIL_CODE }).expect(200)).body;
+    const enrol = await http().post('/insurer-auth/mfa/enrol').send({ mfaTicket: t.mfaTicket }).expect(200);
+    const fresh = (await http().post('/insurer-auth/mfa/verify').send({ mfaTicket: t.mfaTicket, code: totpAt(enrol.body.secret, currentStep()) }).expect(200)).body.accessToken;
+    await insurerMe(fresh).expect(200);
+    await insurerMe(stolen).expect(401); // the stolen laptop's session never comes back
+  });
+
+  it('keeps a staff session ended after their account is reactivated', async () => {
+    const victim = await staff('support');
+    const admin = await staff('super_admin');
+    await as(compliance).post(`/admin/accounts/staff_user/${victim.id}/suspend`).send({ reason: 'Laptop reported stolen' }).expect(200);
+    const req = (await as(support2).post(`/admin/accounts/staff_user/${victim.id}/requests`).send({ action: 'reactivate', reason: 'Laptop recovered, wiped and checked' }).expect(201)).body;
+    await as(admin).post(`/admin/approvals/${req.id}/approve`).send({}).expect(200);
+    await as(victim).get('/admin/me').expect(401);
+  });
+
   it('keeps staff from acting on their own account', async () => {
     const admin = await staff('super_admin');
     const other = await staff('super_admin');

@@ -14,6 +14,7 @@ export const InsurerRoles = (...roles: InsurerRole[]) => SetMetadata(ROLES, role
 /**
  * Checks the token, then reads the user's status on every request, so a
  * suspension or an authenticator reset from the staff admin ends access at once.
+ * Tokens issued before that moment stay refused after reactivation.
  */
 @Injectable()
 export class InsurerAuthGuard implements CanActivate {
@@ -28,8 +29,10 @@ export class InsurerAuthGuard implements CanActivate {
     const claims = header.startsWith('Bearer ') ? verifyInsurerToken(header.slice(7)) : null;
     if (!claims) throw new UnauthorizedException({ code: 'auth.required', message: 'Sign in to the insurer portal.' });
     const { rows } = await this.pool.query<{ ok: boolean }>(
-      "select status = 'active' and totp_enrolled_at is not null as ok from insurer.insurer_user where id = $1",
-      [claims.sub],
+      `select status = 'active' and totp_enrolled_at is not null
+              and (sessions_valid_after is null or $2 > floor(extract(epoch from sessions_valid_after))) as ok
+         from insurer.insurer_user where id = $1`,
+      [claims.sub, claims.iat],
     );
     if (!rows[0]?.ok) throw new UnauthorizedException({ code: 'auth.required', message: 'Sign in to the insurer portal.' });
     const allowed = this.reflector.getAllAndOverride<InsurerRole[] | undefined>(ROLES, [context.getHandler(), context.getClass()]);

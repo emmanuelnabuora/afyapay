@@ -12,7 +12,7 @@ Gate G5 (security readiness) needs the evidence below before the pilot. Only com
 | Load test at 10x pilot volume | Done | [load-test.md](load-test.md) |
 | Backup and restore drill | Done in development; repeat in production | [restore-drill.md](restore-drill.md) |
 | External penetration test | Founder approved getting quotes (27 Nov 2026) | Scope for quotes is shared separately; report and fixes to follow |
-| Incident response runbook | Drafted; rehearse before the pilot | [incident-response.md](../runbooks/incident-response.md) |
+| Incident response runbook | Drafted. Technical drill of a stolen insurer laptop done (27 Nov 2026; one gap fixed); team tabletop still to run | [incident-response.md](../runbooks/incident-response.md), [rehearsal record](../runbooks/rehearsals/2026-11-27-stolen-insurer-laptop.md) |
 | Secret rotation runbook | Done; the app reads old keys during a rotation, and `rotate-keys` re-encrypts | [secret-rotation.md](../runbooks/secret-rotation.md), `src/database/rotate-keys.ts`, `test/key-rotation.int.spec.ts` |
 | Support playbook (customers and insurers) | Drafted | [support-playbook.md](../runbooks/support-playbook.md) |
 | Production environment plan | Drafted; the region needs counsel's advice, and nothing is deployed without the founder's approval | [production-environment-plan.md](production-environment-plan.md) |
