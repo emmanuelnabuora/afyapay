@@ -1,7 +1,21 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import { api, ApiError, setToken } from './api';
 
 type Step = { kind: 'email' } | { kind: 'code'; challengeId: string } | { kind: 'enrol'; ticket: string; secret: string; url: string } | { kind: 'mfa'; ticket: string };
+
+/** The setup QR code, drawn in the browser so the key never goes to another service. */
+function SetupQr({ url }: { url: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    QRCode.toDataURL(url, { margin: 1, width: 200, errorCorrectionLevel: 'M' }).then((d) => live && setSrc(d), () => live && setSrc(null));
+    return () => {
+      live = false;
+    };
+  }, [url]);
+  return src ? <img className="qr" src={src} width={200} height={200} alt="QR code to scan with your authenticator app" /> : null;
+}
 
 /** Email code, then an authenticator app code. First sign-in sets the authenticator up. */
 export function SignIn({ onSignedIn, authBase, title }: { onSignedIn: () => void; authBase: '/insurer-auth' | '/admin-auth'; title: string }) {
@@ -66,9 +80,11 @@ export function SignIn({ onSignedIn, authBase, title }: { onSignedIn: () => void
         {step.kind === 'enrol' && (
           <>
             <h2>Set up your authenticator app</h2>
-            <p className="muted">Signing in always needs a code from an authenticator app. In your app, add an account and enter this key:</p>
+            <p className="muted">Signing in always needs a code from an authenticator app, such as Google Authenticator or Microsoft Authenticator. In your app, add an account and scan this code:</p>
+            <SetupQr url={step.url} />
+            <p className="muted">Can't scan it? Choose to enter a setup key instead, and type this key:</p>
             <p className="secret mono" aria-label="Setup key">{step.secret.match(/.{1,4}/g)!.join(' ')}</p>
-            <p className="hint">On a phone with the app installed you can <a href={step.url}>open the setup link</a> instead. Keep this key private.</p>
+            <p className="hint">On a phone with the app installed you can <a href={step.url}>open the setup link</a> instead. Keep this code and key private.</p>
           </>
         )}
         {(step.kind === 'enrol' || step.kind === 'mfa') && (
