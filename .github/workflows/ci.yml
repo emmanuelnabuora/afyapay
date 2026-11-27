@@ -21,6 +21,28 @@ jobs:
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | tar -xz gitleaks
           ./gitleaks git --redact --verbose --exit-code 1 .
 
+  dependency-scan:
+    name: Dependency scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Known vulnerabilities in any npm package we ship or build with.
+      - run: npm audit --audit-level=high
+      # A second, independent database (Trivy), plus secrets and config mistakes in the repository.
+      # AfyaPay builds no container image today (Render builds Node directly); if one is added, scan it here too.
+      - name: Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
   build-and-test:
     name: Type check, build and test
     runs-on: ubuntu-latest

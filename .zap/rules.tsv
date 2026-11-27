@@ -1,0 +1,3 @@
+10096	IGNORE	(Timestamp Disclosure: API responses carry ISO timestamps by design)
+10049	IGNORE	(Non-storable / storable content: informational cache classification)
+10109	IGNORE	(Modern Web Application: informational, the apps are single-page React apps)

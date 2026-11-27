@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
-import { mountWebApp } from './web-app';
+import { applySecurityHeaders, mountWebApp } from './web-app';
 
 describe('mountWebApp', () => {
   const dist = mkdtempSync(join(tmpdir(), 'afyapay-web-'));
@@ -14,6 +14,7 @@ describe('mountWebApp', () => {
   mkdirSync(join(dist, 'admin'));
   writeFileSync(join(dist, 'admin', 'index.html'), '<!doctype html><title>Staff admin</title>');
   const app = express();
+  applySecurityHeaders(app);
   mountWebApp(app, dist);
   app.get('/v1/health', (_req, res) => res.json({ ok: true }));
 
@@ -28,6 +29,8 @@ describe('mountWebApp', () => {
     expect(res.headers['content-security-policy']).toContain("frame-ancestors 'none'");
     expect(res.headers['x-frame-options']).toBe('DENY');
     expect(res.headers['cache-control']).toBe('no-cache');
+    expect(res.headers['permissions-policy']).toContain('camera=()');
+    expect(res.headers['cross-origin-opener-policy']).toBe('same-origin');
   });
 
   it('falls back to index.html for app paths and serves assets', async () => {
@@ -50,7 +53,11 @@ describe('mountWebApp', () => {
   it('leaves the API alone', async () => {
     const res = await request(app).get('/v1/health').expect(200);
     expect(res.body).toEqual({ ok: true });
-    expect(res.headers['content-security-policy']).toBeUndefined();
+    expect(res.headers['content-security-policy']).toBe("default-src 'none'; frame-ancestors 'none'");
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['x-powered-by']).toBeUndefined();
+    expect(res.headers['strict-transport-security']).toBeUndefined(); // plain HTTP here
     await request(app).get('/v1/nope').expect(404);
   });
 });

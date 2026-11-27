@@ -3,6 +3,31 @@ import { join } from 'node:path';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { static as serveStatic } from 'express';
 
+const isApi = (req: Request) => req.path === '/v1' || req.path.startsWith('/v1/');
+
+/**
+ * Security headers on every response, API and pages alike. API responses are
+ * never cached (they can hold personal data) and may not be framed or run as a
+ * page. HSTS is sent only over HTTPS (Render terminates TLS in front of us).
+ */
+export function applySecurityHeaders(app: Express): void {
+  app.disable('x-powered-by');
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+    if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    if (isApi(req)) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+    }
+    next();
+  });
+}
+
 /** Where `vite build web` puts the customer app. */
 export const WEB_DIST = join(__dirname, '..', 'web', 'dist');
 
@@ -20,12 +45,9 @@ export function mountWebApp(app: Express, dist = WEB_DIST): boolean {
       'Content-Security-Policy',
       "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
     );
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Referrer-Policy', 'no-referrer');
-    res.setHeader('X-Frame-Options', 'DENY');
     next();
   };
-  const isApp = (req: Request) => req.method === 'GET' && !req.path.startsWith('/v1/') && req.path !== '/v1';
+  const isApp = (req: Request) => req.method === 'GET' && !isApi(req);
   app.use((req: Request, res: Response, next: NextFunction) => (isApp(req) ? headers(req, res, next) : next()));
   app.use(serveStatic(dist, { index: 'index.html', maxAge: '1h', setHeaders: (res, path) => path.endsWith('index.html') && res.setHeader('Cache-Control', 'no-cache') }));
   const under = (req: Request, dir: string) => req.path === `/${dir}` || req.path.startsWith(`/${dir}/`);
