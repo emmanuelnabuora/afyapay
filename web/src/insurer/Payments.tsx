@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { api, ApiError, kes, when } from './api';
+import { api, ApiError, kes, when } from '../staff/api';
 
 interface Payment {
   id: string;

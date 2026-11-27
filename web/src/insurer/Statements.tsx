@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { api, download, upload, when } from './api';
+import { api, download, upload, when } from '../staff/api';
 import type { Me } from './Portal';
-import { ErrorLine, FilePick, Table, useAction, who } from './ui';
+import { ErrorLine, FilePick, Table, useAction, who } from '../staff/ui';
 
 interface Summary { id: string; fileName: string; lineCount: number; matched: number; alreadyMatched?: number; exceptions: number; missingFromStatement?: number; periodFrom: string | null; periodTo: string | null; uploadedBy?: string; uploadedAt?: string }
 interface Mismatch { id: string; kind: string; detail: string; status: 'open' | 'resolved'; owner: string | null; dueAt: string; overdue: boolean; resolution: { note: string; by: string; at: string } | null; createdAt: string }

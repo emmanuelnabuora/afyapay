@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { api, upload, when } from './api';
+import { api, upload, when } from '../staff/api';
 import type { Me } from './Portal';
-import { ErrorLine, FilePick, Table, useAction, who } from './ui';
+import { ErrorLine, FilePick, Table, useAction, who } from '../staff/ui';
 
 interface Batch {
   id: string; fileName: string; items: number; needsSecondApprover: boolean; status: 'proposed' | 'applied' | 'rejected';

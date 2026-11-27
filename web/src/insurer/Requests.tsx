@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from 'react';
-import { api, ApiError, when } from './api';
+import { api, ApiError, when } from '../staff/api';
 
 interface Link {
   id: string;
