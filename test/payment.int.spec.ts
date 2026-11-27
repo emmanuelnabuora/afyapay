@@ -8,6 +8,7 @@ import { seedSandbox } from '../src/database/seed-sandbox';
 import { PRE_LAUNCH_SYNTHETIC_CODE } from '../src/modules/identity/auth.service';
 import { SHARE_WITH_INSURER_CONSENT } from '../src/modules/identity/consent';
 import { CONFIRM_STK_JOB } from '../src/modules/inbox/inbox.service';
+import { PaymentService } from '../src/modules/payment/payment.service';
 import { PaymentWorker } from '../src/modules/payment/payment.worker';
 import { SIMULATED_CALLBACK_JOB } from '../src/modules/payment/simulated.gateway';
 import { PolicyLinkService } from '../src/modules/policy/policy-link.service';
@@ -96,6 +97,8 @@ describe('M-Pesa premium payments (simulated gateway)', () => {
     expect(started.body).toMatchObject({ status: 'prompt_sent', amountMinor: '250000', currency: 'KES', policyNumber: 'SYN-PM-PAY-0301', receipt: null });
 
     const checkoutId = await checkoutIdFor(started.body.id);
+    // A status query that beats the callback waits for the receipt instead of failing.
+    expect(await app.get(PaymentService).confirm(checkoutId)).toBe('pending');
     await settle(checkoutId);
 
     const receipt = await http().get(`/me/payments/${started.body.id}`).set('Authorization', `Bearer ${token}`).expect(200);
@@ -159,7 +162,12 @@ describe('M-Pesa premium payments (simulated gateway)', () => {
     const checkoutId = await checkoutIdFor(started.body.id);
     await pool.query("delete from platform.job where kind = $1 and payload->'Body'->'stkCallback'->>'CheckoutRequestID' = $2", [SIMULATED_CALLBACK_JOB, checkoutId]);
 
-    await settle(checkoutId); // only the safety-net status query runs
+    // Only the safety-net status query runs. Before the timeout it waits for
+    // the receipt; after it, a paid result without a receipt goes to review.
+    await settle(checkoutId);
+    expect((await http().get(`/me/payments/${started.body.id}`).set('Authorization', `Bearer ${token}`).expect(200)).body.status).toBe('prompt_sent');
+    await pool.query("update payment.payment_intent set created_at = now() - interval '11 minutes' where id = $1", [started.body.id]);
+    await settle(checkoutId);
     const res = await http().get(`/me/payments/${started.body.id}`).set('Authorization', `Bearer ${token}`).expect(200);
     expect(res.body.status).toBe('needs_review');
     expect(res.body.failure.code).toBe('receipt_missing');

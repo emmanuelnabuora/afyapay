@@ -192,6 +192,8 @@ export class PaymentService {
       // Paid, per M-Pesa's own status query. The receipt and amount come from the
       // stored callback; if they are missing or disagree, a person checks it.
       const callback = await this.inbox.stkCallback(checkoutRequestId);
+      // The status query can beat the callback; give the receipt time to arrive.
+      if (!callback && Date.now() - p.created_at.getTime() < PROMPT_TIMEOUT_MS) return 'pending';
       const receipt = callbackItem(callback, 'MpesaReceiptNumber');
       const paidShillings = callbackItem(callback, 'Amount');
       const expected = BigInt(p.amount_minor);
