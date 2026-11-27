@@ -8,7 +8,7 @@ export interface InsurerUser { id: string; email: string; displayName: string; i
 export interface Gate { code: string; title: string; neededFor: 'pilot' | 'later'; status: 'open' | 'closed'; evidenceCount?: number; lastChange?: { status: string; note: string; by: string; at: string } | null }
 export interface Request {
   id: string;
-  kind: 'role_grant' | 'role_revoke' | 'setting_change' | 'customer_unmask' | 'account_action';
+  kind: 'role_grant' | 'role_revoke' | 'setting_change' | 'customer_unmask' | 'account_action' | 'insurer_user_add';
   payload: Record<string, unknown>;
   reason: string;
   status: 'proposed' | 'approved' | 'rejected' | 'withdrawn';
