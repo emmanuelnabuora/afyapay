@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api, clearToken, hasToken, whenExpired } from './api';
+import { CoverFiles } from './CoverFiles';
 import { Interests } from './Interests';
 import { Payments } from './Payments';
+import { Plans } from './Plans';
 import { Requests } from './Requests';
 import { SignIn } from './SignIn';
+import { Statements } from './Statements';
 
 export interface Me {
   userId: string;
@@ -14,6 +17,9 @@ export interface Me {
 const TABS = [
   { path: 'requests', label: 'Policy requests' },
   { path: 'payments', label: 'Payments' },
+  { path: 'statements', label: 'Statements' },
+  { path: 'cover-files', label: 'Cover files' },
+  { path: 'plans', label: 'Your plans' },
   { path: 'interest', label: 'Interested customers' },
 ] as const;
 
@@ -93,6 +99,12 @@ export function Portal() {
           <p className="muted">Loading…</p>
         ) : tab === 'payments' ? (
           <Payments />
+        ) : tab === 'statements' ? (
+          <Statements me={me} canAct={canAct} />
+        ) : tab === 'cover-files' ? (
+          <CoverFiles me={me} canAct={canAct} />
+        ) : tab === 'plans' ? (
+          <Plans canAct={canAct} />
         ) : tab === 'interest' ? (
           <Interests canAct={canAct} />
         ) : (

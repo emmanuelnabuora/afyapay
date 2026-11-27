@@ -51,7 +51,10 @@ export async function api<T>(path: string, init: { method?: 'GET' | 'POST'; body
   if (init.body !== undefined) headers['Content-Type'] = 'application/json';
   if (method === 'POST') headers['Idempotency-Key'] = crypto.randomUUID();
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(`/v1${path}`, { method, headers, body: init.body === undefined ? undefined : JSON.stringify(init.body) });
+  return parse<T>(await fetch(`/v1${path}`, { method, headers, body: init.body === undefined ? undefined : JSON.stringify(init.body) }));
+}
+
+async function parse<T>(res: Response): Promise<T> {
   const text = await res.text();
   const data = text ? JSON.parse(text) : null;
   if (res.status === 401 && token) {
@@ -63,6 +66,27 @@ export async function api<T>(path: string, init: { method?: 'GET' | 'POST'; body
     throw new ApiError(res.status, data?.code ?? 'error', message);
   }
   return data as T;
+}
+
+/** Sends one file as multipart field "file", with an Idempotency-Key. */
+export async function upload<T>(path: string, file: File): Promise<T> {
+  const form = new FormData();
+  form.append('file', file);
+  const headers: Record<string, string> = { 'Idempotency-Key': crypto.randomUUID() };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return parse<T>(await fetch(`/v1${path}`, { method: 'POST', headers, body: form }));
+}
+
+/** Downloads a file the API only gives to signed-in staff, and saves it under its own name. */
+export async function download(path: string, fileName: string) {
+  const res = await fetch(`/v1${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) return parse(res);
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 /** Minor units -> "KES 1,500.50" (exact, for insurer staff). */
