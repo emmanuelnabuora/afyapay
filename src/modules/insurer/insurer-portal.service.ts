@@ -21,6 +21,12 @@ export class InsurerPortalService {
     private readonly tracks: PolicyTracksService,
   ) {}
 
+  /** Who is signed in, with their insurer's name for the portal header. */
+  async me(user: InsurerClaims) {
+    const insurer = await this.scope.run(user.ins, async (tx) => (await tx.query<{ code: string; name: string }>('select code, name from insurer.insurer where id = $1', [user.ins])).rows[0]);
+    return { userId: user.sub, insurerId: user.ins, role: user.role, insurer: insurer ?? null };
+  }
+
   async listLinks(user: InsurerClaims, status?: unknown) {
     const filter = typeof status === 'string' && ['pending_insurer', 'confirmed', 'rejected', 'unlinked'].includes(status) ? status : null;
     return this.scope.run(user.ins, async (tx) => {

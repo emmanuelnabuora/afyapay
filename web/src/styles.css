@@ -116,7 +116,7 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .card.done { border-color: var(--good); background: var(--good-bg); }
 .interest { display: flex; flex-direction: column; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .interest .muted { font-size: 0.875rem; }
-.compare-scroll { overflow-x: auto; margin: 0 -16px 16px; padding: 0 16px; }
+.compare-scroll { position: relative; overflow-x: auto; margin: 0 -16px 16px; padding: 0 16px; }
 table.compare { border-collapse: collapse; min-width: 100%; font-size: 0.9rem; background: var(--card); }
 .compare th, .compare td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; min-width: 120px; }
 .compare thead th { font-family: 'Space Grotesk', Inter, sans-serif; }
