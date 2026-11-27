@@ -35,7 +35,7 @@ jobs:
       # AfyaPay builds no container image today (Render builds Node directly); if one is added, scan it here too.
       - name: Trivy filesystem scan
         # Pinned to a commit, not a tag, so a moved tag cannot change what runs here.
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scan-ref: .
