@@ -5,6 +5,7 @@ import { GovernanceModule } from './modules/governance/governance.module';
 import { IdentityModule } from './modules/identity/identity.module';
 import { InboxModule } from './modules/inbox/inbox.module';
 import { InsurerModule } from './modules/insurer/insurer.module';
+import { NotificationModule } from './modules/notification/notification.module';
 import { LedgerModule } from './modules/ledger/ledger.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { PlatformModule } from './modules/platform/platform.module';
@@ -20,6 +21,7 @@ import { ReconciliationModule } from './modules/reconciliation/reconciliation.mo
     PaymentModule,
     InboxModule,
     LedgerModule,
+    NotificationModule,
     ReconciliationModule,
     PlatformModule,
     GovernanceModule,

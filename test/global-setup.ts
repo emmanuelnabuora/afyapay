@@ -13,7 +13,7 @@ export default async function globalSetup(): Promise<void> {
   const db = new Client({ connectionString: url });
   await db.connect();
   await db.query(
-    'drop schema if exists identity, insurer, policy, payment, inbox, ledger, reconciliation, platform, governance cascade; drop table if exists public.schema_migration',
+    'drop schema if exists identity, insurer, policy, payment, inbox, ledger, reconciliation, platform, governance, notification cascade; drop table if exists public.schema_migration',
   );
   await db.end();
   await migrate(url);

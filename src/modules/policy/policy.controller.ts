@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { CustomerAuthGuard, CustomerRequest } from '../identity/customer-auth.guard';
 import { PolicyLinkService } from './policy-link.service';
+import { PolicyTracksService } from './policy-tracks.service';
 
 @Controller()
 @UseGuards(CustomerAuthGuard)
@@ -28,5 +29,22 @@ export class PolicyController {
   @Post('me/policy-links')
   request(@Req() req: CustomerRequest, @Body() body: Record<string, unknown>) {
     return this.links.requestLink(req.customer!.sub, body ?? {});
+  }
+}
+
+/** The customer's confirmed policies, each with its money, premium and cover tracks. */
+@Controller('me/policies')
+@UseGuards(CustomerAuthGuard)
+export class MyPoliciesController {
+  constructor(private readonly tracks: PolicyTracksService) {}
+
+  @Get()
+  async list(@Req() req: CustomerRequest) {
+    return { testMode: true, policies: await this.tracks.listForCustomer(req.customer!.sub) };
+  }
+
+  @Get(':id')
+  async get(@Req() req: CustomerRequest, @Param('id') id: string) {
+    return { testMode: true, policy: await this.tracks.getForCustomer(req.customer!.sub, id) };
   }
 }
