@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
 import { PlatformModule } from '../platform/platform.module';
 import { PolicyModule } from '../policy/policy.module';
-import { InsurerAuthController, InsurerPortalController } from './insurer.controller';
+import { CoverBatchService } from './cover-batch.service';
+import { CoverBatchController, InsurerAuthController, InsurerPortalController } from './insurer.controller';
 import { InsurerAuthGuard } from './insurer-auth.guard';
 import { InsurerAuthService } from './insurer-auth.service';
 import { InsurerPortalService } from './insurer-portal.service';
@@ -13,8 +14,8 @@ import { InsurerScope } from './insurer-scope';
  */
 @Module({
   imports: [PlatformModule, PolicyModule],
-  controllers: [InsurerAuthController, InsurerPortalController],
-  providers: [InsurerAuthService, InsurerAuthGuard, InsurerScope, InsurerPortalService],
+  controllers: [InsurerAuthController, InsurerPortalController, CoverBatchController],
+  providers: [InsurerAuthService, InsurerAuthGuard, InsurerScope, InsurerPortalService, CoverBatchService],
   exports: [InsurerScope, InsurerAuthGuard],
 })
 export class InsurerModule {}

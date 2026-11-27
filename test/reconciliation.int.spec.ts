@@ -2,6 +2,7 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { Pool } from 'pg';
 import request from 'supertest';
+import ExcelJS from 'exceljs';
 import { AppModule } from '../src/app.module';
 import { PG_POOL } from '../src/database/database.module';
 import { seedSandbox } from '../src/database/seed-sandbox';
@@ -191,4 +192,50 @@ describe('statement reconciliation', () => {
     expect(res.body).toMatchObject({ lineCount: 5000, matched: 5000, exceptions: 0 });
     expect(seconds).toBeLessThan(120);
   }, 150_000);
+
+  it('reads Excel statements directly, dates and amounts as typed cells', async () => {
+    const p = await paid(customerToken, linkId, 65000);
+    await as(operator).post('/insurer/statement-mapping').send({ receiptCol: 'Trans ID', policyCol: 'Account', amountCol: 'Paid In', dateCol: 'Completion Time', dateFormat: 'DD/MM/YYYY' }).expect(200);
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Statement');
+    ws.addRow(['Trans ID', 'Completion Time', 'Account', 'Paid In']);
+    ws.addRow([p.receipt, new Date(`${today}T10:15:00Z`), 'SYN-PM-RC-0701', 650]);
+    const res = await as(operator).post('/insurer/statements').attach('file', Buffer.from(await wb.xlsx.writeBuffer()), 'statement.xlsx').expect(201);
+    expect(res.body).toMatchObject({ lineCount: 1, matched: 1, exceptions: 0, periodFrom: today });
+    await as(operator).post('/insurer/statements').attach('file', Buffer.from('MZ not a statement'), 'statement.exe').expect(422);
+  });
+
+  it('holds PDF statements for a second person to transcribe', async () => {
+    const p = await paid(customerToken, linkId, 72000);
+    const approver = await staff('PWANI', 'approver');
+    const pdf = Buffer.from('%PDF-1.4\n% synthetic statement for tests\n%%EOF\n');
+    await as(operator).post('/insurer/statements').attach('file', pdf, 'statement.pdf').expect(422);
+    await as(operator).post('/insurer/statement-documents').attach('file', Buffer.from('not really a pdf'), 'fake.pdf').expect(422);
+    await as(viewer).post('/insurer/statement-documents').attach('file', pdf, 'statement.pdf').expect(403);
+    const doc = (await as(operator).post('/insurer/statement-documents').attach('file', pdf, 'November statement.pdf').expect(201)).body;
+    expect(doc).toMatchObject({ status: 'awaiting_review' });
+
+    const listed = (await as(viewer).get('/insurer/statement-documents').expect(200)).body.find((d: { id: string }) => d.id === doc.id);
+    expect(listed).toMatchObject({ status: 'awaiting_review', statementId: null });
+    const content = await as(viewer).get(`/insurer/statement-documents/${doc.id}/content`).buffer(true).expect(200);
+    expect(content.headers['content-type']).toContain('application/pdf');
+    expect(content.headers['content-disposition']).toBe('attachment; filename="November_statement.pdf"');
+    expect(Buffer.compare(content.body as Buffer, pdf)).toBe(0);
+    await as(jamii).get(`/insurer/statement-documents/${doc.id}/content`).expect(404);
+
+    const [y, m, d] = today.split('-');
+    const lines = Buffer.from(`Trans ID,Completion Time,Account,Paid In\n${p.receipt},${d}/${m}/${y},SYN-PM-RC-0701,720\n`);
+    await as(operator).post(`/insurer/statement-documents/${doc.id}/transcription`).attach('file', lines, 'typed.csv').expect(403);
+    await as(viewer).post(`/insurer/statement-documents/${doc.id}/transcription`).attach('file', lines, 'typed.csv').expect(403);
+    const done = await as(approver).post(`/insurer/statement-documents/${doc.id}/transcription`).attach('file', lines, 'typed.csv').expect(201);
+    expect(done.body).toMatchObject({ matched: 1, exceptions: 0 });
+    await as(approver).post(`/insurer/statement-documents/${doc.id}/transcription`).attach('file', Buffer.concat([lines, Buffer.from('\n')]), 'typed2.csv').expect(409);
+    const after = (await as(viewer).get('/insurer/statement-documents').expect(200)).body.find((x: { id: string }) => x.id === doc.id);
+    expect(after).toMatchObject({ status: 'transcribed', statementId: done.body.id });
+    await expect(pool.query("update reconciliation.statement_document set status = 'awaiting_review', statement_id = null where id = $1", [doc.id])).rejects.toThrow(/already transcribed/);
+    await expect(pool.query('delete from reconciliation.statement_document where id = $1', [doc.id])).rejects.toThrow(/never deleted/);
+    const other = (await as(operator).post('/insurer/statement-documents').attach('file', Buffer.concat([pdf, Buffer.from('% 2')]), 'second.pdf').expect(201)).body;
+    await expect(pool.query("update reconciliation.statement_document set status = 'rejected', reviewed_by = uploaded_by, reviewed_at = now() where id = $1", [other.id])).rejects.toThrow();
+    await expect(pool.query("update reconciliation.statement_document set content = 'x' where id = $1", [other.id])).rejects.toThrow(/cannot change/);
+  });
 });
