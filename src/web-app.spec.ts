@@ -31,6 +31,8 @@ describe('mountWebApp', () => {
     expect(res.headers['cache-control']).toBe('no-cache');
     expect(res.headers['permissions-policy']).toContain('camera=()');
     expect(res.headers['cross-origin-opener-policy']).toBe('same-origin');
+    expect(res.headers['cross-origin-embedder-policy']).toBe('require-corp');
+    expect(res.headers['content-security-policy']).not.toContain('googleapis');
   });
 
   it('falls back to index.html for app paths and serves assets', async () => {
@@ -40,7 +42,10 @@ describe('mountWebApp', () => {
   });
 
   it('serves the insurer portal under /insurer', async () => {
-    await request(app).get('/insurer').expect(301);
+    const moved = await request(app).get('/insurer?x=1').expect(301);
+    expect(moved.headers.location).toBe('/insurer/?x=1');
+    expect(moved.headers['content-security-policy']).toContain("frame-ancestors 'none'");
+    expect((await request(app).get('/admin').expect(301)).headers.location).toBe('/admin/');
     const res = await request(app).get('/insurer/').expect(200);
     expect(res.text).toContain('Insurer portal');
     expect(res.headers['content-security-policy']).toContain("default-src 'self'");
