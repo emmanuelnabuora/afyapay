@@ -3,6 +3,7 @@ import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { PoolClient } from 'pg';
 import { InsurerClaims } from '../insurer/insurer-auth.service';
 import { InsurerScope } from '../insurer/insurer-scope';
+import { readRows, UploadedFile } from './file-rows';
 import { DEFAULT_MAPPING, Mapping, normaliseRef, parseStatement } from './statement-parser';
 
 const fail = (status: HttpStatus, code: string, message: string) => new HttpException({ code, message }, status);
@@ -75,19 +76,88 @@ export class ReconciliationService {
     });
   }
 
-  async upload(user: InsurerClaims, file: { originalname: string; buffer: Buffer } | undefined): Promise<StatementSummary> {
-    if (!file?.buffer?.length) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'statement.file_required', 'Attach the statement as a CSV file.');
-    const name = (file.originalname || 'statement.csv').slice(0, 200);
-    if (!/\.csv$/i.test(name)) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'statement.csv_only', 'Upload a CSV file. Save Excel statements as CSV first; PDF statements go to manual review.');
-    const sha = createHash('sha256').update(file.buffer).digest('hex');
-    const text = file.buffer.toString('utf8');
-
+  /** A CSV or Excel statement. Runs in its own scoped transaction. */
+  async upload(user: InsurerClaims, file: UploadedFile | undefined): Promise<StatementSummary> {
+    if (file && /\.pdf$/i.test(file.originalname || '')) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'statement.pdf', 'Upload PDF statements to manual review (/insurer/statement-documents).');
+    const name = (file?.originalname || 'statement.csv').slice(0, 200);
+    const sha = file?.buffer?.length ? createHash('sha256').update(file.buffer).digest('hex') : '';
     return this.scope.run(user.ins, async (tx) => {
+      const mapping = await this.mapping(tx);
+      const { rows } = await readRows(file, mapping.dateFormat);
+      return this.matchStatement(tx, user, name, sha, rows, mapping);
+    });
+  }
+
+  /** A PDF statement, held until a person transcribes it. */
+  async uploadDocument(user: InsurerClaims, file: UploadedFile | undefined) {
+    if (!file?.buffer?.length) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'document.file_required', 'Attach the PDF statement.');
+    if (!/\.pdf$/i.test(file.originalname || '') || file.buffer.subarray(0, 5).toString('latin1') !== '%PDF-') {
+      throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'document.pdf_only', 'Only PDF files go to manual review. Upload CSV or Excel statements directly.');
+    }
+    const sha = createHash('sha256').update(file.buffer).digest('hex');
+    return this.scope.run(user.ins, async (tx) => {
+      const dup = await tx.query('select id from reconciliation.statement_document where file_sha256 = $1', [sha]);
+      if (dup.rowCount) throw fail(HttpStatus.CONFLICT, 'document.duplicate', 'This exact file was already uploaded.');
+      const { rows } = await tx.query<{ id: string; created_at: Date }>(
+        'insert into reconciliation.statement_document (insurer_id, file_name, file_sha256, content, uploaded_by) values ($1, $2, $3, $4, $5) returning id, created_at',
+        [user.ins, file.originalname.slice(0, 200), sha, file.buffer, user.sub],
+      );
+      await this.audit(tx, user, 'statement_document.uploaded', rows[0].id, 'statement_document');
+      return { id: rows[0].id, fileName: file.originalname, status: 'awaiting_review', uploadedAt: rows[0].created_at };
+    });
+  }
+
+  async listDocuments(user: InsurerClaims) {
+    return this.scope.run(user.ins, async (tx) => {
+      const { rows } = await tx.query(
+        `select id, file_name, octet_length(content) as bytes, status, statement_id, review_note, reviewed_by, reviewed_at, uploaded_by, created_at
+           from reconciliation.statement_document order by created_at desc limit 200`,
+      );
+      return rows.map((r) => ({ id: r.id, fileName: r.file_name, bytes: r.bytes, status: r.status, statementId: r.statement_id, reviewNote: r.review_note, reviewedBy: r.reviewed_by, reviewedAt: r.reviewed_at, uploadedBy: r.uploaded_by, uploadedAt: r.created_at }));
+    });
+  }
+
+  async downloadDocument(user: InsurerClaims, id: string): Promise<{ fileName: string; content: Buffer }> {
+    if (!/^[0-9a-f-]{36}$/.test(id)) throw fail(HttpStatus.NOT_FOUND, 'document.not_found', 'Document not found.');
+    return this.scope.run(user.ins, async (tx) => {
+      const { rows } = await tx.query<{ file_name: string; content: Buffer }>('select file_name, content from reconciliation.statement_document where id = $1', [id]);
+      if (!rows[0]) throw fail(HttpStatus.NOT_FOUND, 'document.not_found', 'Document not found.');
+      return { fileName: rows[0].file_name, content: rows[0].content };
+    });
+  }
+
+  /**
+   * The reviewer uploads the PDF's lines as CSV or Excel. They are matched like
+   * any statement, and the document records which statement it became. The
+   * reviewer cannot be the person who uploaded the PDF.
+   */
+  async transcribeDocument(user: InsurerClaims, id: string, file: UploadedFile | undefined): Promise<StatementSummary> {
+    if (!/^[0-9a-f-]{36}$/.test(id)) throw fail(HttpStatus.NOT_FOUND, 'document.not_found', 'Document not found.');
+    const sha = file?.buffer?.length ? createHash('sha256').update(file.buffer).digest('hex') : '';
+    return this.scope.run(user.ins, async (tx) => {
+      const { rows } = await tx.query<{ file_name: string; status: string; uploaded_by: string }>('select file_name, status, uploaded_by from reconciliation.statement_document where id = $1 for update', [id]);
+      const doc = rows[0];
+      if (!doc) throw fail(HttpStatus.NOT_FOUND, 'document.not_found', 'Document not found.');
+      if (doc.status !== 'awaiting_review') throw fail(HttpStatus.CONFLICT, 'document.already_reviewed', `This document is already ${doc.status}.`);
+      if (doc.uploaded_by === user.sub) throw fail(HttpStatus.FORBIDDEN, 'document.second_person', 'Someone other than the uploader must transcribe a PDF statement.');
+      const mapping = await this.mapping(tx);
+      const { rows: lines } = await readRows(file, mapping.dateFormat);
+      const summary = await this.matchStatement(tx, user, `${doc.file_name} (transcribed)`, sha, lines, mapping);
+      await tx.query(
+        "update reconciliation.statement_document set status = 'transcribed', statement_id = $2, reviewed_by = $3, reviewed_at = now(), review_note = 'Transcribed and matched' where id = $1",
+        [id, summary.id, user.sub],
+      );
+      await this.audit(tx, user, 'statement_document.transcribed', id, 'statement_document');
+      return summary;
+    });
+  }
+
+  private async matchStatement(tx: PoolClient, user: InsurerClaims, name: string, sha: string, input: string[][], mapping: Mapping): Promise<StatementSummary> {
+    {
       const dup = await tx.query('select id from reconciliation.statement where file_sha256 = $1', [sha]);
       if (dup.rowCount) throw fail(HttpStatus.CONFLICT, 'statement.duplicate', 'This exact file was already uploaded.');
 
-      const mapping = await this.mapping(tx);
-      const { lines, missingColumns } = parseStatement(text, mapping);
+      const { lines, missingColumns } = parseStatement(input, mapping);
       if (missingColumns.length) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'statement.columns_missing', `The file has no column named: ${missingColumns.join(', ')}. Check the column mapping.`);
       if (lines.length === 0) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'statement.empty', 'The file has no payment lines.');
       if (lines.length > MAX_STATEMENT_LINES) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'statement.too_large', `Split statements over ${MAX_STATEMENT_LINES} lines.`);
@@ -198,7 +268,7 @@ export class ReconciliationService {
 
       await this.audit(tx, user, 'statement.uploaded', statementId, 'statement');
       return { id: statementId, fileName: name, lineCount: rows.length, matched: counts.matched, alreadyMatched: counts.already, exceptions: counts.exceptions, missingFromStatement: missing, periodFrom, periodTo };
-    });
+    }
   }
 
   async listStatements(user: InsurerClaims) {

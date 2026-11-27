@@ -81,8 +81,9 @@ export function parseDate(raw: string, format: Mapping['dateFormat']): string | 
 
 export const normaliseRef = (v: string) => v.trim().toUpperCase().replace(/\s+/g, '');
 
-export function parseStatement(text: string, mapping: Mapping): { lines: ParsedLine[]; missingColumns: string[] } {
-  const rows = parseCsv(text);
+/** Parses CSV text or rows already read from a spreadsheet. */
+export function parseStatement(input: string | string[][], mapping: Mapping): { lines: ParsedLine[]; missingColumns: string[] } {
+  const rows = typeof input === 'string' ? parseCsv(input) : input.filter((r) => r.some((f) => f.trim() !== ''));
   if (rows.length === 0) return { lines: [], missingColumns: [] };
   const header = rows[0].map((h) => h.trim().toLowerCase());
   const idx = (name: string) => header.indexOf(name.trim().toLowerCase());
