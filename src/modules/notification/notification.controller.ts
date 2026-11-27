@@ -18,7 +18,7 @@ export class NotificationController {
     return this.notifications.preferences(req.customer!.sub);
   }
 
-  /** Language and SMS reminders. Needs an Idempotency-Key. */
+  /** SMS reminders on or off. Needs an Idempotency-Key. */
   @Post('preferences')
   setPreferences(@Req() req: CustomerRequest, @Body() body: Record<string, unknown>) {
     return this.notifications.setPreferences(req.customer!.sub, body ?? {});

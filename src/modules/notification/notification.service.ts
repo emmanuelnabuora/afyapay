@@ -8,7 +8,7 @@ import { OutboxEvent } from '../platform/outbox.service';
 import { PolicyTracksService } from '../policy/policy-tracks.service';
 import { kes } from '../policy/tracks';
 import { SMS_GATEWAY, SmsGateway } from './sms.gateway';
-import { ESSENTIAL, Language, reason, render, TemplateName } from './templates';
+import { ESSENTIAL, reason, render, TemplateName } from './templates';
 
 const fail = (status: HttpStatus, code: string, message: string) => new HttpException({ code, message }, status);
 
@@ -60,12 +60,12 @@ export class NotificationService {
     const facts = await this.payments.messageFacts(event.aggregateId);
     if (!facts) return;
     const failureCode = (event.payload.failureCode as string | undefined) ?? facts.failureCode ?? 'declined';
-    await this.queue(facts.customerId, template, `event:${event.id}`, (lang) => ({
+    await this.queue(facts.customerId, template, `event:${event.id}`, {
       amount: kes(facts.amountMinor),
       insurer: facts.insurerName,
       receipt: facts.mpesaReceipt ?? '',
-      reason: reason(failureCode, lang),
-    }));
+      reason: reason(failureCode),
+    });
   }
 
   /** Reminders and overdue notices for today. Safe to run many times a day. */
@@ -74,18 +74,18 @@ export class NotificationService {
     for (const { customerId, tracks: t } of await this.tracks.allWithPlans(now)) {
       const p = t.premium;
       if (p.state === 'part_paid' && REMINDER_DAYS.includes(p.daysToDueDate)) {
-        queued += await this.queue(customerId, 'premium_reminder', `reminder:${t.policyLinkId}:${p.dueDate}:${p.daysToDueDate}`, () => ({
+        queued += await this.queue(customerId, 'premium_reminder', `reminder:${t.policyLinkId}:${p.dueDate}:${p.daysToDueDate}`, {
           insurer: t.insurer.name,
           paid: kes(BigInt(p.paidThisPeriodMinor)),
           premium: kes(BigInt(p.premiumMinor)),
           dueDate: p.dueDate,
-        }), now);
+        }, now);
       } else if (p.state === 'behind_schedule') {
-        queued += await this.queue(customerId, 'premium_overdue', `overdue:${t.policyLinkId}:${p.periodStart}`, () => ({
+        queued += await this.queue(customerId, 'premium_overdue', `overdue:${t.policyLinkId}:${p.periodStart}`, {
           insurer: t.insurer.name,
           behind: kes(BigInt(p.behindByMinor)),
           days: String(p.daysToDueDate),
-        }), now);
+        }, now);
       }
     }
     return queued;
@@ -124,24 +124,19 @@ export class NotificationService {
     return rows.map((r) => ({ id: r.id, template: r.template, body: r.body, createdAt: r.created_at }));
   }
 
-  async preferences(customerId: string): Promise<{ language: Language; smsReminders: boolean; consentText: typeof SMS_REMINDERS_CONSENT }> {
-    const { rows } = await this.pool.query<{ language: Language }>('select language from identity.customer where id = $1', [customerId]);
-    return { language: rows[0]?.language ?? 'en', smsReminders: await this.hasReminderConsent(customerId), consentText: SMS_REMINDERS_CONSENT };
+  async preferences(customerId: string): Promise<{ smsReminders: boolean; consentText: typeof SMS_REMINDERS_CONSENT }> {
+    return { smsReminders: await this.hasReminderConsent(customerId), consentText: SMS_REMINDERS_CONSENT };
   }
 
-  /** Changes language and the SMS reminder choice. Consent changes are new rows, never edits. */
-  async setPreferences(customerId: string, body: { language?: unknown; smsReminders?: unknown; consentTextVersion?: unknown }) {
-    if (body.language !== undefined && body.language !== 'en' && body.language !== 'sw') {
-      throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'preferences.language_invalid', 'Choose English (en) or Kiswahili (sw).');
-    }
-    if (body.smsReminders !== undefined && typeof body.smsReminders !== 'boolean') {
+  /** Turns SMS reminders on or off. Consent changes are new rows, never edits. */
+  async setPreferences(customerId: string, body: { smsReminders?: unknown; consentTextVersion?: unknown }) {
+    if (typeof body.smsReminders !== 'boolean') {
       throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'preferences.reminders_invalid', 'smsReminders must be true or false.');
     }
-    if (body.smsReminders === true && body.consentTextVersion !== SMS_REMINDERS_CONSENT.version) {
+    if (body.smsReminders && body.consentTextVersion !== SMS_REMINDERS_CONSENT.version) {
       throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'consent.required', `Accept consent ${SMS_REMINDERS_CONSENT.version} to get SMS reminders.`);
     }
-    if (body.language) await this.pool.query('update identity.customer set language = $2, updated_at = now() where id = $1', [customerId, body.language]);
-    if (typeof body.smsReminders === 'boolean' && body.smsReminders !== (await this.hasReminderConsent(customerId))) {
+    if (body.smsReminders !== (await this.hasReminderConsent(customerId))) {
       await this.pool.query(
         "insert into identity.consent_record (customer_id, purpose, granted, text_version) values ($1, 'sms_reminders', $2, $3)",
         [customerId, body.smsReminders, SMS_REMINDERS_CONSENT.version],
@@ -159,22 +154,20 @@ export class NotificationService {
   }
 
   /** Queues one message on both channels. Returns 1 if new, 0 if already queued. */
-  private async queue(customerId: string, template: TemplateName, dedupeKey: string, vars: (lang: Language) => Record<string, string>, now = new Date()): Promise<number> {
-    const { rows } = await this.pool.query<{ language: Language }>('select language from identity.customer where id = $1', [customerId]);
-    const language = rows[0]?.language ?? 'en';
-    const body = render(template, language, vars(language));
+  private async queue(customerId: string, template: TemplateName, dedupeKey: string, vars: Record<string, string>, now = new Date()): Promise<number> {
+    const body = render(template, vars);
     const essential = ESSENTIAL[template];
 
     const inApp = await this.pool.query(
-      `insert into notification.message (customer_id, channel, template, language, body, essential, dedupe_key, status)
-       values ($1, 'in_app', $2, $3, $4, $5, $6, 'delivered') on conflict (channel, dedupe_key) do nothing`,
-      [customerId, template, language, body, essential, dedupeKey],
+      `insert into notification.message (customer_id, channel, template, body, essential, dedupe_key, status)
+       values ($1, 'in_app', $2, $3, $4, $5, 'delivered') on conflict (channel, dedupe_key) do nothing`,
+      [customerId, template, body, essential, dedupeKey],
     );
     const allowed = essential || (await this.hasReminderConsent(customerId));
     await this.pool.query(
-      `insert into notification.message (customer_id, channel, template, language, body, essential, dedupe_key, status, send_after, status_reason)
-       values ($1, 'sms', $2, $3, $4, $5, $6, $7, $8, $9) on conflict (channel, dedupe_key) do nothing`,
-      [customerId, template, language, body, essential, dedupeKey, allowed ? 'queued' : 'skipped_no_consent', essential ? now : afterQuietHours(now), allowed ? null : 'no SMS reminder consent'],
+      `insert into notification.message (customer_id, channel, template, body, essential, dedupe_key, status, send_after, status_reason)
+       values ($1, 'sms', $2, $3, $4, $5, $6, $7, $8) on conflict (channel, dedupe_key) do nothing`,
+      [customerId, template, body, essential, dedupeKey, allowed ? 'queued' : 'skipped_no_consent', essential ? now : afterQuietHours(now), allowed ? null : 'no SMS reminder consent'],
     );
     return inApp.rowCount ?? 0;
   }

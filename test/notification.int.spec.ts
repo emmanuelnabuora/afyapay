@@ -89,13 +89,12 @@ describe('notifications', () => {
     for (const m of await messages(c.customerId, 'sms')) expect(m).toMatchObject({ status: 'suppressed', status_reason: 'synthetic number: never sent' });
   });
 
-  it('explains a failed payment in the customer language', async () => {
+  it('explains a failed payment', async () => {
     const c = await customer('0700000509', 'SYN-PM-NTF-0509');
-    await http().post('/me/preferences').set('Authorization', `Bearer ${c.token}`).set('Idempotency-Key', key()).send({ language: 'sw' }).expect(201);
     const paymentId = await payAndSettle(c.token, c.linkId, 50000);
     await deliverEvents(paymentId);
     const failed = (await messages(c.customerId, 'in_app')).find((m) => m.template === 'payment_failed');
-    expect(failed.body).toBe('AfyaPay: Malipo hayakufanikiwa: Ulighairi ombi la M-Pesa.');
+    expect(failed.body).toBe("AfyaPay: Payment didn't go through: You cancelled the M-Pesa prompt.");
   });
 
   it('sends reminders by SMS only with consent, once, and always shows them in the app', async () => {
@@ -112,7 +111,7 @@ describe('notifications', () => {
       .set('Idempotency-Key', key())
       .send({ smsReminders: true, consentTextVersion: SMS_REMINDERS_CONSENT.version })
       .expect(201);
-    expect(prefs.body).toMatchObject({ language: 'en', smsReminders: true });
+    expect(prefs.body).toMatchObject({ smsReminders: true });
 
     await notifications.runReminders();
     await notifications.runReminders();
@@ -142,9 +141,9 @@ describe('notifications', () => {
 
   it('checks preference input and needs sign-in', async () => {
     const c = await customer('0700000505', 'SYN-PM-NTF-0505');
-    await http().post('/me/preferences').set('Authorization', `Bearer ${c.token}`).set('Idempotency-Key', key()).send({ language: 'fr' }).expect(422);
+    await http().post('/me/preferences').set('Authorization', `Bearer ${c.token}`).set('Idempotency-Key', key()).send({ smsReminders: 'yes' }).expect(422);
     const prefs = await http().get('/me/preferences').set('Authorization', `Bearer ${c.token}`).expect(200);
-    expect(prefs.body).toMatchObject({ language: 'en', smsReminders: false, consentText: { version: SMS_REMINDERS_CONSENT.version } });
+    expect(prefs.body).toMatchObject({ smsReminders: false, consentText: { version: SMS_REMINDERS_CONSENT.version } });
     await http().get('/me/messages').expect(401);
   });
 });
