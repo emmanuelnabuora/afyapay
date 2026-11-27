@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api, ApiError } from '../api';
-import type { Policy, PolicyLink } from '../types';
+import { api, ApiError, kes } from '../api';
+import type { PlanInterest, Policy, PolicyLink } from '../types';
 
 const tone = (state: string) =>
   ['payment_succeeded', 'fully_paid', 'active'].includes(state) ? 'good' : ['payment_failed', 'behind_schedule', 'lapsed', 'ended'].includes(state) ? 'bad' : ['stale', 'payment_pending'].includes(state) ? 'warn' : 'neutral';
@@ -28,6 +28,7 @@ function Tracks({ p }: { p: Policy }) {
 export function Home({ go, onSignedOut }: { go: (to: string) => void; onSignedOut: () => void }) {
   const [policies, setPolicies] = useState<Policy[] | null>(null);
   const [links, setLinks] = useState<PolicyLink[]>([]);
+  const [interests, setInterests] = useState<PlanInterest[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,6 +38,7 @@ export function Home({ go, onSignedOut }: { go: (to: string) => void; onSignedOu
         setLinks(l.filter((x) => x.status !== 'confirmed' && x.status !== 'unlinked'));
       })
       .catch((err: ApiError) => (err.status === 401 ? onSignedOut() : setError(err.message)));
+    api<PlanInterest[]>('/me/plan-interests').then((i) => setInterests(i.filter((x) => x.status !== 'closed'))).catch(() => undefined);
   }, []);
 
   if (error) return <p className="error" role="alert">{error}</p>;
@@ -53,6 +55,7 @@ export function Home({ go, onSignedOut }: { go: (to: string) => void; onSignedOu
           <h2>No policies yet</h2>
           <p className="muted">Link a policy you already have with your insurer, then pay your premium here with M-Pesa.</p>
           <button className="primary" onClick={() => go('/link')}>Link a policy</button>
+          <button className="secondary" onClick={() => go('/plans')}>No policy? Find insurance</button>
         </section>
       )}
       {policies.map((p) => (
@@ -78,6 +81,22 @@ export function Home({ go, onSignedOut }: { go: (to: string) => void; onSignedOu
           </p>
         </section>
       ))}
+      {interests.length > 0 && (
+        <section className="card">
+          <h2>Plans you asked about</h2>
+          <ul className="messages">
+            {interests.map((i) => (
+              <li key={i.id} className="interest">
+                <a href={`#/plans/${i.plan.id}`}>{i.plan.name}</a>
+                <span className="muted">
+                  {i.status === 'contacted' ? `${i.plan.insurer} has contacted you` : `Waiting for ${i.plan.insurer} to contact you`} · {kes(i.quotedMonthlyMinor)} a month quoted
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="hint">Asking about a plan is not a purchase and does not give you cover.</p>
+        </section>
+      )}
     </>
   );
 }
