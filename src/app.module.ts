@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { DatabaseModule } from './database/database.module';
 import { CatalogueModule } from './modules/catalogue/catalogue.module';
 import { HealthController } from './health.controller';
+import { SupportController } from './support.controller';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { IdentityModule } from './modules/identity/identity.module';
 import { InboxModule } from './modules/inbox/inbox.module';
@@ -28,6 +29,6 @@ import { ReconciliationModule } from './modules/reconciliation/reconciliation.mo
     GovernanceModule,
     CatalogueModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, SupportController],
 })
 export class AppModule {}

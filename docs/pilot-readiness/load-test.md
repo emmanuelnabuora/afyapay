@@ -53,4 +53,4 @@ The first run settled payments at 13 s p50 and **65 s p95**. The payment worker 
 
 - **Hardware:** it ran on a development machine, not the production instance. Repeat it on the production-sized environment before the pilot, against a synthetic copy and never with real customers.
 - **M-Pesa:** the simulator answers instantly. Real Daraja latency and its rate limits are untested until sandbox credentials exist.
-- **Rate limiting:** the API has no general per-client rate limit; only sign-in is limited. The pen test is likely to raise this. Add one at the edge or in the app before the pilot.
+- **Rate limiting:** the app now limits each signed-in client to 120 requests a minute, and each address without a token to 600 (`src/rate-limit.ts`). Run load tests with `RATE_LIMIT_ANON_PER_MINUTE=0` on the server, because every request comes from one address. Production should also limit at the edge.

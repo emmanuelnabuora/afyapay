@@ -4,10 +4,11 @@ export const ROLE_LABEL: Record<Role, string> = { support: 'Support', finance: '
 export const has = (me: Me, ...roles: Role[]) => roles.some((r) => me.roles.includes(r));
 
 export interface Staff { id: string; email: string; displayName: string; status: string; mfaEnrolled: boolean; roles: Role[]; createdAt: string }
+export interface InsurerUser { id: string; email: string; displayName: string; insurer: string; role: 'viewer' | 'operator' | 'approver'; status: string; mfaEnrolled: boolean; createdAt: string }
 export interface Gate { code: string; title: string; neededFor: 'pilot' | 'later'; status: 'open' | 'closed'; evidenceCount?: number; lastChange?: { status: string; note: string; by: string; at: string } | null }
 export interface Request {
   id: string;
-  kind: 'role_grant' | 'role_revoke' | 'setting_change' | 'customer_unmask';
+  kind: 'role_grant' | 'role_revoke' | 'setting_change' | 'customer_unmask' | 'account_action';
   payload: Record<string, unknown>;
   reason: string;
   status: 'proposed' | 'approved' | 'rejected' | 'withdrawn';

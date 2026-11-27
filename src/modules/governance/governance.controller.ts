@@ -53,7 +53,7 @@ export class GovernanceController {
   }
 
   @Get('staff')
-  @StaffRoles('super_admin', 'compliance')
+  @StaffRoles('super_admin', 'compliance', 'support')
   staff() {
     return this.gov.listStaff();
   }
@@ -62,6 +62,27 @@ export class GovernanceController {
   @StaffRoles('super_admin')
   createStaff(@Req() req: StaffRequest, @Body() body: Record<string, unknown>) {
     return this.gov.createStaff(req.staffUser!, body ?? {});
+  }
+
+  @Get('insurer-users')
+  @StaffRoles('support', 'compliance', 'super_admin')
+  insurerUsers() {
+    return this.gov.listInsurerUsers();
+  }
+
+  /** Suspends a staff_user or insurer_user at once. Body: { reason }. */
+  @Post('accounts/:type/:id/suspend')
+  @StaffRoles('compliance', 'super_admin')
+  @HttpCode(200)
+  suspend(@Req() req: StaffRequest, @Param('type') type: string, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return this.gov.suspend(req.staffUser!, type, id, body ?? {});
+  }
+
+  /** Body: { action: 'reset_authenticator' | 'reactivate', reason }. A super administrator approves it on Approvals. */
+  @Post('accounts/:type/:id/requests')
+  @StaffRoles('support', 'compliance', 'super_admin')
+  requestAccountAction(@Req() req: StaffRequest, @Param('type') type: string, @Param('id') id: string, @Body() body: Record<string, unknown>) {
+    return this.gov.proposeAccountAction(req.staffUser!, type, id, body ?? {});
   }
 
   /** Role grants, role removals and setting changes. A different super administrator decides. */

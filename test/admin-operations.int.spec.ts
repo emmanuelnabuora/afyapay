@@ -221,3 +221,75 @@ describe('command centre', () => {
     await http().get('/admin/command-centre').expect(401);
   });
 });
+
+describe('account actions', () => {
+  async function insurerUser(): Promise<{ id: string; token: string; email: string }> {
+    const email = `acct${Date.now()}${n++}@sandbox.test`;
+    const u = await pool.query<{ id: string }>(
+      "insert into insurer.insurer_user (insurer_id, email, display_name, role) select id, $1, 'Synthetic operator', 'operator' from insurer.insurer where code = 'PWANI' returning id",
+      [email],
+    );
+    const ch = await http().post('/insurer-auth/email-code').send({ email }).expect(202);
+    const t = (await http().post('/insurer-auth/email-code/verify').send({ challengeId: ch.body.challengeId, code: PRE_LAUNCH_STAFF_EMAIL_CODE }).expect(200)).body;
+    const enrol = await http().post('/insurer-auth/mfa/enrol').send({ mfaTicket: t.mfaTicket }).expect(200);
+    const token = (await http().post('/insurer-auth/mfa/verify').send({ mfaTicket: t.mfaTicket, code: totpAt(enrol.body.secret, currentStep()) }).expect(200)).body.accessToken;
+    return { id: u.rows[0].id, token, email };
+  }
+  const insurerMe = (token: string) => http().get('/insurer/me').set('Authorization', `Bearer ${token}`);
+
+  it('lists insurer users for support, without secrets', async () => {
+    const op = await insurerUser();
+    const list = (await as(support).get('/admin/insurer-users').expect(200)).body;
+    expect(list).toEqual(expect.arrayContaining([expect.objectContaining({ id: op.id, insurer: expect.any(String), role: 'operator', status: 'active', mfaEnrolled: true })]));
+    expect(JSON.stringify(list)).not.toMatch(/totp|secret/i);
+    await as(finance).get('/admin/insurer-users').expect(403);
+  });
+
+  it('suspends an insurer user at once, and only a super administrator can approve reactivating them', async () => {
+    const op = await insurerUser();
+    const admin = await staff('super_admin');
+    await insurerMe(op.token).expect(200);
+    await as(support).post(`/admin/accounts/insurer_user/${op.id}/suspend`).send({ reason: 'Laptop reported stolen' }).expect(403); // support cannot suspend
+    await as(compliance).post(`/admin/accounts/insurer_user/${op.id}/suspend`).send({ reason: 'no' }).expect(422);
+    await as(compliance).post(`/admin/accounts/insurer_user/${op.id}/suspend`).send({ reason: 'Laptop reported stolen' }).expect(200);
+    await insurerMe(op.token).expect(401); // the existing session ends at once
+    await as(compliance).post(`/admin/accounts/insurer_user/${op.id}/suspend`).send({ reason: 'Laptop reported stolen' }).expect(409);
+
+    const req = (await as(support).post(`/admin/accounts/insurer_user/${op.id}/requests`).send({ action: 'reactivate', reason: 'New laptop issued, confirmed by Pwani admin' }).expect(201)).body;
+    expect(req).toMatchObject({ kind: 'account_action', status: 'proposed', payload: { accountType: 'insurer_user', accountId: op.id, action: 'reactivate' } });
+    await as(compliance).post(`/admin/approvals/${req.id}/approve`).send({}).expect(403); // compliance cannot decide account actions
+    await as(admin).post(`/admin/approvals/${req.id}/approve`).send({}).expect(200);
+    expect((await pool.query('select status from insurer.insurer_user where id = $1', [op.id])).rows[0].status).toBe('active');
+    const audit = await pool.query("select action from governance.audit_event where subject_id = $1 or (after_state->'payload'->>'accountId') = $1 order by seq", [op.id]);
+    expect(audit.rows.map((r) => r.action).slice(-3)).toEqual(['account.suspended', 'approval.proposed', 'approval.approved']);
+  });
+
+  it('resets an insurer authenticator after approval, which ends their sessions and makes them enrol again', async () => {
+    const op = await insurerUser();
+    const admin = await staff('super_admin');
+    const req = (await as(support).post(`/admin/accounts/insurer_user/${op.id}/requests`).send({ action: 'reset_authenticator', reason: 'Lost phone, identity confirmed by Pwani admin' }).expect(201)).body;
+    await insurerMe(op.token).expect(200); // nothing changes until approved
+    await as(admin).post(`/admin/approvals/${req.id}/approve`).send({}).expect(200);
+    await insurerMe(op.token).expect(401);
+    const row = (await pool.query('select totp_secret_enc, totp_enrolled_at from insurer.insurer_user where id = $1', [op.id])).rows[0];
+    expect(row).toEqual({ totp_secret_enc: null, totp_enrolled_at: null });
+    const ch = await http().post('/insurer-auth/email-code').send({ email: op.email }).expect(202);
+    const t = (await http().post('/insurer-auth/email-code/verify').send({ challengeId: ch.body.challengeId, code: PRE_LAUNCH_STAFF_EMAIL_CODE }).expect(200)).body;
+    expect(t.enrolled).toBe(false);
+    await as(support).post(`/admin/accounts/insurer_user/${op.id}/requests`).send({ action: 'reset_authenticator', reason: 'Lost phone again' }).expect(409); // nothing to reset
+  });
+
+  it('keeps staff from acting on their own account', async () => {
+    const admin = await staff('super_admin');
+    const other = await staff('super_admin');
+    await as(admin).post(`/admin/accounts/staff_user/${admin.id}/suspend`).send({ reason: 'Testing own suspend' }).expect(403);
+    await as(admin).post(`/admin/accounts/staff_user/${admin.id}/requests`).send({ action: 'reset_authenticator', reason: 'My own phone' }).expect(403);
+
+    const req = (await as(support).post(`/admin/accounts/staff_user/${admin.id}/requests`).send({ action: 'reset_authenticator', reason: 'Lost phone, confirmed in person' }).expect(201)).body;
+    await as(admin).post(`/admin/approvals/${req.id}/approve`).send({}).expect(403); // not about yourself
+    await expect(pool.query("update governance.approval_request set status = 'approved', decided_by = $2, decided_at = now() where id = $1", [req.id, admin.id])).rejects.toThrow(/own account/);
+    await as(other).post(`/admin/approvals/${req.id}/approve`).send({}).expect(200);
+    await as(admin).get('/admin/me').expect(401); // their session ended with the reset
+
+  });
+});

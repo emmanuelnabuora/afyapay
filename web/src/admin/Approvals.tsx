@@ -1,14 +1,14 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { api, when } from '../staff/api';
 import { ErrorLine, Table, useAction } from '../staff/ui';
-import { has, Me, Request, Role, ROLE_LABEL, Staff } from './types';
+import { has, InsurerUser, Me, Request, Role, ROLE_LABEL, Staff } from './types';
 
 interface Settings { staffIpAllowlist: string[]; liveMoney: { switchedOn: boolean; allowed: boolean; gatesStillOpen: string[] }; planBuying: { switchedOn: boolean; allowed: boolean } }
 
 const STATUS = { proposed: 'Waiting', approved: 'Approved', rejected: 'Rejected', withdrawn: 'Withdrawn' };
 const SETTING: Record<string, string> = { live_money_enabled: 'Live money', plan_buying_enabled: 'Buying plans through AfyaPay', staff_ip_allowlist: 'Staff IP allow-list' };
 
-function describe(r: Request, staff: Staff[]): string {
+function describe(r: Request, staff: Staff[], insurerUsers: InsurerUser[]): string {
   const name = (id: unknown) => staff.find((s) => s.id === id)?.email ?? 'a staff member';
   const p = r.payload;
   switch (r.kind) {
@@ -18,6 +18,10 @@ function describe(r: Request, staff: Staff[]): string {
       return p.key === 'staff_ip_allowlist'
         ? `Set the staff IP allow-list to ${(p.value as string[]).length ? (p.value as string[]).join(', ') : 'empty (any address)'}`
         : `Switch ${SETTING[p.key as string] ?? p.key} ${p.value ? 'on' : 'off'}`;
+    case 'account_action': {
+      const who = p.accountType === 'staff_user' ? `staff member ${name(p.accountId)}` : (() => { const u = insurerUsers.find((x) => x.id === p.accountId); return u ? `${u.insurer} user ${u.email}` : 'an insurer user'; })();
+      return p.action === 'reactivate' ? `Reactivate ${who}` : `Reset the authenticator for ${who} (they set it up again at next sign-in)`;
+    }
     case 'customer_unmask': return `Show customer ${String(p.customerId).slice(0, 8)}… ${p.field === 'national_id' ? 'national ID' : 'phone number'} in full, to the person who asked, for 30 minutes`;
   }
 }
@@ -27,11 +31,13 @@ export function Approvals({ me }: { me: Me }) {
   const [status, setStatus] = useState<string>('proposed');
   const [rows, setRows] = useState<Request[] | null>(null);
   const [staff, setStaff] = useState<Staff[]>([]);
+  const [insurerUsers, setInsurerUsers] = useState<InsurerUser[]>([]);
   const [tick, setTick] = useState(0);
   const refresh = () => setTick(tick + 1);
   useEffect(() => {
     api<Request[]>(`/admin/approvals${status === 'all' ? '' : `?status=${status}`}`).then(setRows).catch(() => setRows([]));
     api<Staff[]>('/admin/staff').then(setStaff).catch(() => undefined);
+    api<InsurerUser[]>('/admin/insurer-users').then(setInsurerUsers).catch(() => undefined);
   }, [status, tick]);
 
   return (
@@ -44,10 +50,10 @@ export function Approvals({ me }: { me: Me }) {
           ))}
         </div>
       </div>
-      <p className="muted">Role changes, setting changes and requests to see a customer's full details. The person who proposes never decides, and nobody decides a change to their own roles.</p>
+      <p className="muted">Role changes, setting changes, account resets and reactivations, and requests to see a customer's full details. The person who proposes never decides, and nobody decides a change to their own roles.</p>
       {!rows ? <p className="muted">Loading…</p> : rows.length === 0 ? <p className="card empty muted">Nothing here.</p> : (
         <Table head={<tr><th>Asked</th><th>Change</th><th>Reason</th><th>By</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr>}>
-          {rows.map((r) => <Row key={r.id} r={r} me={me} staff={staff} onChange={refresh} />)}
+          {rows.map((r) => <Row key={r.id} r={r} me={me} staff={staff} insurerUsers={insurerUsers} onChange={refresh} />)}
         </Table>
       )}
       {has(me, 'super_admin') && <Propose staff={staff} onDone={() => { setStatus('proposed'); refresh(); }} />}
@@ -55,19 +61,19 @@ export function Approvals({ me }: { me: Me }) {
   );
 }
 
-function Row({ r, me, staff, onChange }: { r: Request; me: Me; staff: Staff[]; onChange: () => void }) {
+function Row({ r, me, staff, insurerUsers, onChange }: { r: Request; me: Me; staff: Staff[]; insurerUsers: InsurerUser[]; onChange: () => void }) {
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState('');
   const a = useAction();
   const mine = r.proposedBy.id === me.id;
-  const aboutMe = (r.kind === 'role_grant' || r.kind === 'role_revoke') && r.payload.staffUserId === me.id;
+  const aboutMe = ((r.kind === 'role_grant' || r.kind === 'role_revoke') && r.payload.staffUserId === me.id) || (r.kind === 'account_action' && r.payload.accountId === me.id);
   const canDecide = r.status === 'proposed' && !mine && !aboutMe && (has(me, 'super_admin') || (r.kind === 'customer_unmask' && has(me, 'compliance')));
   const act = (path: string, body: unknown) => a.run(async () => { await api(`/admin/approvals/${r.id}/${path}`, { method: 'POST', body }); onChange(); });
   return (
     <>
       <tr>
         <td>{when(r.createdAt)}</td>
-        <td className="wrap">{describe(r, staff)}</td>
+        <td className="wrap">{describe(r, staff, insurerUsers)}</td>
         <td className="wrap">{r.reason}</td>
         <td>{mine ? 'You' : r.proposedBy.email}</td>
         <td className="wrap">
