@@ -1,0 +1,70 @@
+name: Security scan
+
+# A passive web security scan (OWASP ZAP baseline) of the three web apps and
+# the API, running against a throwaway copy of the app with synthetic data.
+# It is not a penetration test; that is a separate, paid test before the pilot.
+on:
+  pull_request:
+  schedule:
+    - cron: "0 3 * * 1" # Mondays 06:00 Nairobi
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  zap-baseline:
+    name: Web security scan (ZAP baseline)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: afyapay
+          POSTGRES_PASSWORD: afyapay
+          POSTGRES_DB: afyapay_scan
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U afyapay"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Throwaway scan database and dummy keys, not secrets.
+      DATABASE_URL: postgres://afyapay:afyapay@localhost:5432/afyapay_scan
+      APP_ENV: development
+      PORT: "3000"
+      AUTH_SECRET: scan-only-auth-secret-not-real-000000000
+      MPESA_CALLBACK_SECRET: scan-only-callback-secret-0000
+      MFA_SECRET_KEY: scan-only-mfa-secret-key-not-real-00000
+      PII_ENCRYPTION_KEY: scan-only-pii-encryption-key-not-real-00
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: node dist/database/migrate.js && node dist/database/seed-sandbox.js
+      - name: Start the app
+        run: |
+          nohup node dist/main.js > app.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:3000/v1/health && exit 0; sleep 1; done
+          cat app.log; exit 1
+      - name: ZAP baseline
+        run: |
+          mkdir -p zap && chmod 777 zap && cp .zap/rules.tsv zap/
+          status=0
+          for target in / /insurer/ /admin/ /v1/health /v1/plans; do
+            name=$(echo "$target" | tr -c 'a-z0-9' '-')
+            docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" ghcr.io/zaproxy/zaproxy:stable \
+              zap-baseline.py -t "http://localhost:3000$target" -c rules.tsv -I -r "report$name.html" -J "report$name.json" || status=1
+          done
+          exit $status
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-reports
+          path: zap/
+          retention-days: 14

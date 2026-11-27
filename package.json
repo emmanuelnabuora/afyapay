@@ -14,11 +14,14 @@
     "migrate": "ts-node src/database/migrate.ts",
     "test": "jest",
     "synthetic": "ts-node scripts/synthetic.ts",
+    "load-test": "ts-node scripts/load-test.ts",
     "start:staging": "node dist/database/migrate.js && node dist/database/seed-sandbox.js && node dist/main.js",
     "seed:sandbox": "ts-node src/database/seed-sandbox.ts",
     "web:dev": "vite web"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "5.3.0",
+    "@fontsource-variable/space-grotesk": "5.3.0",
     "@nestjs/common": "^11.1.0",
     "@nestjs/core": "^11.1.0",
     "@nestjs/platform-express": "^11.1.0",

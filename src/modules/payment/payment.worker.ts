@@ -4,6 +4,10 @@ import { JobQueueService } from '../platform/job-queue.service';
 import { PaymentService } from './payment.service';
 import { SIMULATED_CALLBACK_JOB } from './simulated.gateway';
 
+/** Jobs claimed per batch, and how many full batches one tick may drain. */
+const BATCH_SIZE = 10;
+const MAX_BATCHES_PER_TICK = 20;
+
 /** Still waiting on M-Pesa: retry the job without counting it as an error. */
 class StillPending extends Error {}
 
@@ -37,7 +41,10 @@ export class PaymentWorker implements OnApplicationBootstrap, OnApplicationShutd
     if (this.running) return;
     this.running = true;
     try {
-      await this.runOnce();
+      // Keep draining while full batches come back, so a burst of payments is
+      // confirmed in seconds rather than at 10 jobs per tick. The cap keeps one
+      // tick from running forever if the queue never empties.
+      for (let i = 0; i < MAX_BATCHES_PER_TICK && (await this.runOnce()) === BATCH_SIZE; i++);
     } catch (err) {
       this.log.error(`Payment worker tick failed: ${(err as Error).message}`);
     } finally {
@@ -47,7 +54,7 @@ export class PaymentWorker implements OnApplicationBootstrap, OnApplicationShutd
 
   /** Processes the jobs that are due now. Returns how many it handled. */
   async runOnce(): Promise<number> {
-    const batch = await this.jobs.claim([CONFIRM_STK_JOB, SIMULATED_CALLBACK_JOB], 10, 60);
+    const batch = await this.jobs.claim([CONFIRM_STK_JOB, SIMULATED_CALLBACK_JOB], BATCH_SIZE, 60);
     for (const job of batch) {
       try {
         if (job.kind === SIMULATED_CALLBACK_JOB) {
