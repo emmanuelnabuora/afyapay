@@ -308,6 +308,34 @@ describe('account actions', () => {
     await as(victim).get('/admin/me').expect(401);
   });
 
+  it('adds an insurer user only after a super administrator approves, and they set up an authenticator at first sign-in', async () => {
+    const admin = await staff('super_admin');
+    const email = `new${Date.now()}${n++}@sandbox.test`;
+    const ask = (body: Record<string, unknown>) => as(support).post('/admin/insurer-users/requests').send({ insurerCode: 'PWANI', email, displayName: 'Synthetic new operator', role: 'operator', reason: 'Requested by the Pwani named administrator by email', ...body });
+    await ask({ email: 'someone@example.com' }).expect(422); // synthetic addresses only before go-live
+    await ask({ role: 'owner' }).expect(422);
+    await ask({ insurerCode: 'NOPE' }).expect(404);
+    await as(finance).post('/admin/insurer-users/requests').send({ insurerCode: 'PWANI', email, displayName: 'X Y', role: 'operator', reason: 'Not allowed' }).expect(403);
+    expect((await as(support).get('/admin/insurers').expect(200)).body).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'PWANI' })]));
+    const req = (await ask({}).expect(201)).body;
+    expect(req).toMatchObject({ kind: 'insurer_user_add', status: 'proposed', payload: { email, role: 'operator', displayName: 'Synthetic new operator' } });
+    await ask({}).expect(409); // one waiting request per email
+    await http().post('/insurer-auth/email-code').send({ email }).expect(202); // same answer whether or not the account exists
+    expect((await pool.query('select 1 from insurer.insurer_user where email = $1', [email])).rowCount).toBe(0); // nothing until approved
+
+    await as(compliance).post(`/admin/approvals/${req.id}/approve`).send({}).expect(403);
+    await as(admin).post(`/admin/approvals/${req.id}/approve`).send({}).expect(200);
+    const row = (await pool.query("select u.role, u.status, u.totp_enrolled_at, i.code from insurer.insurer_user u join insurer.insurer i on i.id = u.insurer_id where u.email = $1", [email])).rows[0];
+    expect(row).toMatchObject({ role: 'operator', status: 'active', totp_enrolled_at: null, code: 'PWANI' });
+    const audit = await pool.query("select 1 from governance.audit_event where action = 'insurer_user.created' and after_state->>'email' = $1", [email]);
+    expect(audit.rowCount).toBe(1);
+    await ask({}).expect(409); // already has an account
+
+    const ch = await http().post('/insurer-auth/email-code').send({ email }).expect(202);
+    const t = (await http().post('/insurer-auth/email-code/verify').send({ challengeId: ch.body.challengeId, code: PRE_LAUNCH_STAFF_EMAIL_CODE }).expect(200)).body;
+    expect(t.enrolled).toBe(false);
+  });
+
   it('keeps staff from acting on their own account', async () => {
     const admin = await staff('super_admin');
     const other = await staff('super_admin');

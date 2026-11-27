@@ -70,6 +70,19 @@ export class GovernanceController {
     return this.gov.listInsurerUsers();
   }
 
+  @Get('insurers')
+  @StaffRoles('support', 'compliance', 'super_admin')
+  insurers() {
+    return this.gov.listInsurers();
+  }
+
+  /** Body: { insurerCode, email, displayName, role, reason }. A super administrator approves it on Approvals. */
+  @Post('insurer-users/requests')
+  @StaffRoles('support', 'compliance', 'super_admin')
+  requestInsurerUser(@Req() req: StaffRequest, @Body() body: Record<string, unknown>) {
+    return this.gov.proposeInsurerUser(req.staffUser!, body ?? {});
+  }
+
   /** Suspends a staff_user or insurer_user at once. Body: { reason }. */
   @Post('accounts/:type/:id/suspend')
   @StaffRoles('compliance', 'super_admin')

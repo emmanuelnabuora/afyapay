@@ -22,6 +22,7 @@ function describe(r: Request, staff: Staff[], insurerUsers: InsurerUser[]): stri
       const who = p.accountType === 'staff_user' ? `staff member ${name(p.accountId)}` : (() => { const u = insurerUsers.find((x) => x.id === p.accountId); return u ? `${u.insurer} user ${u.email}` : 'an insurer user'; })();
       return p.action === 'reactivate' ? `Reactivate ${who}` : `Reset the authenticator for ${who} (they set it up again at next sign-in)`;
     }
+    case 'insurer_user_add': return `Add ${String(p.email)} (${String(p.displayName)}) as ${String(p.insurerName ?? 'an insurer')} ${String(p.role)}; they set up an authenticator at first sign-in`;
     case 'customer_unmask': return `Show customer ${String(p.customerId).slice(0, 8)}… ${p.field === 'national_id' ? 'national ID' : 'phone number'} in full, to the person who asked, for 30 minutes`;
   }
 }
@@ -50,7 +51,7 @@ export function Approvals({ me }: { me: Me }) {
           ))}
         </div>
       </div>
-      <p className="muted">Role changes, setting changes, account resets and reactivations, and requests to see a customer's full details. The person who proposes never decides, and nobody decides a change to their own roles.</p>
+      <p className="muted">Role changes, setting changes, new insurer users, account resets and reactivations, and requests to see a customer's full details. The person who proposes never decides, and nobody decides a change to their own roles.</p>
       {!rows ? <p className="muted">Loading…</p> : rows.length === 0 ? <p className="card empty muted">Nothing here.</p> : (
         <Table head={<tr><th>Asked</th><th>Change</th><th>Reason</th><th>By</th><th>Status</th><th><span className="sr-only">Actions</span></th></tr>}>
           {rows.map((r) => <Row key={r.id} r={r} me={me} staff={staff} insurerUsers={insurerUsers} onChange={refresh} />)}

@@ -42,7 +42,7 @@ This playbook is for anyone answering AfyaPay support during the pilot. Support 
 | "Statement doesn't match" | Mismatches in the portal | Mismatches list lines with no matching M-Pesa receipt, or a different amount. The insurer checks their paybill export. AfyaPay finance helps if a line looks missing on our side. |
 | "Cover file won't go through" | Batch status | A file with more than 50 lines needs a second approver at the insurer. Check that both approvers have signed in. |
 | "A customer says they paid" | Payment by receipt code | Confirm from the payment record. The insurer's paybill statement is the source of truth for money received. |
-| "Add or remove a staff member" | Request from the insurer's named administrator | **Remove:** compliance or a super administrator chooses **Suspend** on the Insurer users page; access ends at once. **Add:** an engineer adds them with the right role (viewer, operator or approver). |
+| "Add or remove a staff member" | Request from the insurer's named administrator | **Remove:** compliance or a super administrator chooses **Suspend** on the Insurer users page; access ends at once. **Add:** on the Insurer users page, fill in **Add an insurer user** with the insurer, their work email, name and role (viewer, operator or approver), and say who asked and how you confirmed it. A super administrator approves it on Approvals. The new user sets up an authenticator at first sign-in. |
 
 ## Handover and records
 
@@ -51,6 +51,5 @@ This playbook is for anyone answering AfyaPay support during the pilot. Support 
 
 ## Gaps to close before or during the pilot
 
-- Adding insurer users is still an engineer task.
 - Changing a phone number, and data subject requests, need a process agreed with counsel.
 - The customer app shows a support phone number and email once `SUPPORT_PHONE` and `SUPPORT_EMAIL` are set on the host. Set them before the pilot.

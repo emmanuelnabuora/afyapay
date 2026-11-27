@@ -3,6 +3,7 @@ import { Pool, PoolClient } from 'pg';
 import { PG_POOL } from '../../database/database.module';
 import { STAFF_ROLES, StaffRole } from './staff-auth.service';
 import type { StaffUser } from './staff-auth.guard';
+import { SYNTHETIC_STAFF_DOMAIN } from '../insurer/insurer-auth.service';
 
 const fail = (status: HttpStatus, code: string, message: string) => new HttpException({ code, message }, status);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -14,7 +15,7 @@ export interface UploadedEvidence {
   buffer: Buffer;
 }
 
-type Kind = 'role_grant' | 'role_revoke' | 'setting_change' | 'customer_unmask' | 'account_action';
+type Kind = 'role_grant' | 'role_revoke' | 'setting_change' | 'customer_unmask' | 'account_action' | 'insurer_user_add';
 export type AccountType = 'staff_user' | 'insurer_user';
 export type AccountAction = 'reset_authenticator' | 'reactivate';
 const ACCOUNT_TABLE: Record<AccountType, string> = { staff_user: 'governance.staff_user', insurer_user: 'insurer.insurer_user' };
@@ -76,6 +77,11 @@ export class GovernanceService {
 
   // ---- accounts (staff and insurer users) --------------------------------
 
+  async listInsurers() {
+    const { rows } = await this.pool.query<{ code: string; name: string }>('select code, name from insurer.insurer order by name');
+    return rows;
+  }
+
   async listInsurerUsers() {
     const { rows } = await this.pool.query(
       `select u.id, u.email, u.display_name, u.role, u.status, u.totp_enrolled_at is not null as mfa_enrolled, u.created_at, i.name as insurer
@@ -122,6 +128,28 @@ export class GovernanceService {
     return this.propose(actor, { kind: 'account_action', payload: { accountType: type, accountId: id, action: body.action }, reason: body.reason });
   }
 
+  /**
+   * Asks for a new insurer user. Adding one gives access, so a super
+   * administrator approves it; the user is created on approval.
+   */
+  async proposeInsurerUser(actor: StaffUser, body: { insurerCode?: unknown; email?: unknown; displayName?: unknown; role?: unknown; reason?: unknown }) {
+    const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const displayName = typeof body.displayName === 'string' ? body.displayName.trim() : '';
+    if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(email)) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'insurer_user.invalid', 'Enter their work email address.');
+    // Before go-live only synthetic addresses can sign in, so only those can be added.
+    if (!email.endsWith(`@${SYNTHETIC_STAFF_DOMAIN}`)) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'email.synthetic_only', `Before go-live, only synthetic addresses (@${SYNTHETIC_STAFF_DOMAIN}) can be added.`);
+    if (displayName.length < 2 || displayName.length > 120) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'insurer_user.invalid', 'Give their name, in 2 to 120 characters.');
+    if (body.role !== 'viewer' && body.role !== 'operator' && body.role !== 'approver') throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'insurer_user.invalid', 'role must be viewer, operator or approver.');
+    const insurer = (await this.pool.query<{ id: string; name: string }>('select id, name from insurer.insurer where code = $1', [typeof body.insurerCode === 'string' ? body.insurerCode : ''])).rows[0];
+    if (!insurer) throw fail(HttpStatus.NOT_FOUND, 'insurer.not_found', 'Insurer not found.');
+    const taken = await this.pool.query(
+      "select 1 from insurer.insurer_user where email = $1 union all select 1 from governance.approval_request where kind = 'insurer_user_add' and status = 'proposed' and payload->>'email' = $1",
+      [email],
+    );
+    if (taken.rowCount) throw fail(HttpStatus.CONFLICT, 'insurer_user.exists', 'This email already has an insurer account, or a request waiting.');
+    return this.propose(actor, { kind: 'insurer_user_add', payload: { insurerId: insurer.id, insurerName: insurer.name, email, displayName, role: body.role }, reason: body.reason });
+  }
+
   // ---- approval requests -------------------------------------------------
 
   async propose(actor: StaffUser, body: { kind?: unknown; payload?: unknown; reason?: unknown }) {
@@ -145,10 +173,16 @@ export class GovernanceService {
         throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'approval.payload_invalid', 'Request account actions from the Accounts page.');
       }
       payload = { accountType: p.accountType, accountId: p.accountId, action: p.action };
+    } else if (kind === 'insurer_user_add') {
+      if (typeof p.insurerId !== 'string' || !UUID.test(p.insurerId) || typeof p.email !== 'string' || typeof p.displayName !== 'string' || !['viewer', 'operator', 'approver'].includes(p.role as string)) {
+        throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'approval.payload_invalid', 'Add insurer users from the Insurer users page.');
+      }
+      if (!p.email.endsWith(`@${SYNTHETIC_STAFF_DOMAIN}`)) throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'email.synthetic_only', `Before go-live, only synthetic addresses (@${SYNTHETIC_STAFF_DOMAIN}) can be added.`);
+      payload = { insurerId: p.insurerId, insurerName: typeof p.insurerName === 'string' ? p.insurerName.slice(0, 120) : undefined, email: p.email, displayName: p.displayName, role: p.role };
     } else if (kind === 'customer_unmask') {
       throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'approval.kind_invalid', 'Ask to see a full phone number from the customer lookup.');
     } else {
-      throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'approval.kind_invalid', 'kind must be role_grant, role_revoke, setting_change or account_action.');
+      throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'approval.kind_invalid', 'kind must be role_grant, role_revoke, setting_change, account_action or insurer_user_add.');
     }
     return this.tx(async (tx) => {
       const { rows } = await tx.query<{ id: string }>('insert into governance.approval_request (kind, payload, reason, proposed_by) values ($1, $2, $3, $4) returning id', [kind, payload, reason, actor.id]);
@@ -180,6 +214,14 @@ export class GovernanceService {
             : `update ${table} set totp_secret_enc = null, totp_enrolled_at = null, last_totp_step = null where id = $1`;
         const done = await tx.query(sql, [req.payload.accountId]);
         if (!done.rowCount) throw fail(HttpStatus.CONFLICT, 'approval.no_change', 'Nothing to change: the account is already in that state.');
+      } else if (req.kind === 'insurer_user_add') {
+        const p = req.payload;
+        const added = await tx.query<{ id: string }>(
+          'insert into insurer.insurer_user (insurer_id, email, display_name, role) values ($1, $2, $3, $4) on conflict (email) do nothing returning id',
+          [p.insurerId, p.email, p.displayName, p.role],
+        );
+        if (!added.rows[0]) throw fail(HttpStatus.CONFLICT, 'approval.no_change', 'Nothing to change: this email already has an insurer account.');
+        await this.audit(tx, actor, 'insurer_user.created', 'insurer_user', added.rows[0].id, { insurerId: p.insurerId, email: p.email, role: p.role, approvalRequestId: id });
       } else if (req.kind === 'setting_change') {
         if (req.payload.key === 'live_money_enabled' && req.payload.value === true) await this.checkLiveMoneyGates(tx);
         if (req.payload.key === 'plan_buying_enabled' && req.payload.value === true) await this.checkBuyingGate(tx);
