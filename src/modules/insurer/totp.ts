@@ -83,6 +83,11 @@ function mfaKey(): Buffer {
   if (!raw || raw.length < 32) throw new Error('MFA_SECRET_KEY must be set to at least 32 characters');
   return createHash('sha256').update(raw).digest();
 }
+/** The current key, then MFA_SECRET_KEY_PREVIOUS while a rotation is under way. */
+function mfaKeys(): Buffer[] {
+  const previous = process.env.MFA_SECRET_KEY_PREVIOUS;
+  return previous && previous.length >= 32 ? [mfaKey(), createHash('sha256').update(previous).digest()] : [mfaKey()];
+}
 
 export function encryptSecret(plain: string): string {
   const iv = randomBytes(12);
@@ -92,9 +97,22 @@ export function encryptSecret(plain: string): string {
 }
 
 export function decryptSecret(stored: string): string {
+  return decryptSecretWithKeyInfo(stored).plain;
+}
+
+/** Decrypts with the current key, or the previous one, and says whether the current key was used. */
+export function decryptSecretWithKeyInfo(stored: string): { plain: string; current: boolean } {
   const [v, iv, tag, enc] = stored.split('.');
   if (v !== 'v1') throw new Error('Unknown secret format');
-  const decipher = createDecipheriv('aes-256-gcm', mfaKey(), Buffer.from(iv, 'base64url'));
-  decipher.setAuthTag(Buffer.from(tag, 'base64url'));
-  return Buffer.concat([decipher.update(Buffer.from(enc, 'base64url')), decipher.final()]).toString('utf8');
+  for (const [i, key] of mfaKeys().entries()) {
+    try {
+      const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64url'));
+      decipher.setAuthTag(Buffer.from(tag, 'base64url'));
+      const plain = Buffer.concat([decipher.update(Buffer.from(enc, 'base64url')), decipher.final()]).toString('utf8');
+      return { plain, current: i === 0 };
+    } catch {
+      // wrong key: try the next one
+    }
+  }
+  throw new Error('Secret could not be decrypted with the current or previous key');
 }
