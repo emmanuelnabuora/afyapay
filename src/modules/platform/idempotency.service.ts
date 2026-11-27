@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { Pool } from 'pg';
 import { PG_POOL } from '../../database/database.module';
+import { keyedHash } from '../identity/tokens';
 
 export type IdempotencyStart =
   | { kind: 'new' }
@@ -9,9 +9,13 @@ export type IdempotencyStart =
   | { kind: 'conflict' }
   | { kind: 'in_progress' };
 
-/** Stable hash of a request body: key order does not change the hash. */
+/**
+ * Stable hash of a request body: key order does not change the hash. Keyed
+ * (HMAC), because bodies can hold short personal values such as an ID number
+ * that a plain hash would let anyone with database access guess back.
+ */
 export function hashRequest(body: unknown): string {
-  return createHash('sha256').update(canonicalJson(body ?? null)).digest('hex');
+  return keyedHash(canonicalJson(body ?? null), 'idempotency');
 }
 
 function canonicalJson(value: unknown): string {

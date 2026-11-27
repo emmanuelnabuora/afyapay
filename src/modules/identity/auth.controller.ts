@@ -4,6 +4,7 @@ import { PG_POOL } from '../../database/database.module';
 import { SkipIdempotency } from '../platform/idempotency.interceptor';
 import { AuthService } from './auth.service';
 import { CustomerAuthGuard, CustomerRequest } from './customer-auth.guard';
+import { NationalIdService } from './national-id.service';
 import { maskPhone } from './phone';
 
 /**
@@ -45,7 +46,10 @@ export class AuthController {
 @Controller('me')
 @UseGuards(CustomerAuthGuard)
 export class MeController {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+  constructor(
+    @Inject(PG_POOL) private readonly pool: Pool,
+    private readonly nationalIds: NationalIdService,
+  ) {}
 
   @Get()
   async me(@Req() req: CustomerRequest) {
@@ -54,6 +58,13 @@ export class MeController {
       [req.customer!.sub],
     );
     if (!rows[0]) throw new NotFoundException({ code: 'customer.not_found', message: 'Account not found.' });
-    return { id: rows[0].id, phone: maskPhone(rows[0].phone_e164), memberSince: rows[0].created_at };
+    return { id: rows[0].id, phone: maskPhone(rows[0].phone_e164), nationalId: await this.nationalIds.masked(rows[0].id), memberSince: rows[0].created_at };
+  }
+
+  /** Adds or corrects the customer's national ID number; the answer shows it masked. Needs an Idempotency-Key. */
+  @Post('national-id')
+  @HttpCode(200)
+  nationalId(@Req() req: CustomerRequest, @Body() body: { nationalId?: unknown }) {
+    return this.nationalIds.record(req.customer!.sub, body?.nationalId);
   }
 }

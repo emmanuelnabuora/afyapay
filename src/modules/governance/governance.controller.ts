@@ -171,7 +171,7 @@ export class AdminOperationsController {
     return this.centre.summary();
   }
 
-  /** Exact match only: ?phone=, ?policyNumber= (optionally &insurerCode=) or ?customerId=. The phone number comes back masked. */
+  /** Exact match only: ?phone=, ?nationalId=, ?policyNumber= (optionally &insurerCode=) or ?customerId=. Phone and ID come back masked. */
   @Get('customers')
   @StaffRoles(...ANY_STAFF_ROLE)
   customers(@Req() req: StaffRequest, @Query() query: Record<string, unknown>) {
@@ -182,6 +182,12 @@ export class AdminOperationsController {
   @StaffRoles(...ANY_STAFF_ROLE)
   requestUnmask(@Req() req: StaffRequest, @Param('id') id: string, @Body() body: Record<string, unknown>) {
     return this.lookup.requestUnmask(req.staffUser!, id, body ?? {});
+  }
+
+  @Get('customers/:id/national-id')
+  @StaffRoles(...ANY_STAFF_ROLE)
+  nationalId(@Req() req: StaffRequest, @Param('id') id: string, @Query('requestId') requestId?: string) {
+    return this.lookup.unmaskedNationalId(req.staffUser!, id, requestId);
   }
 
   @Get('customers/:id/phone')

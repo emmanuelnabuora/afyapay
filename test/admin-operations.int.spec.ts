@@ -129,7 +129,7 @@ describe('masked customer lookup', () => {
         [{ customerId, field: 'phone' }, support.id],
       );
       await c.query("update governance.approval_request set status = 'approved', decided_by = $2, decided_at = now() - interval '31 minutes' where id = $1", [old.rows[0].id, compliance.id]);
-      expect((await c.query('select governance.unmask_allowed($1, $2, $3) as ok', [old.rows[0].id, support.id, customerId])).rows[0].ok).toBe(false);
+      expect((await c.query("select governance.unmask_allowed($1, $2, $3, 'phone') as ok", [old.rows[0].id, support.id, customerId])).rows[0].ok).toBe(false);
     } finally {
       await c.query('rollback');
       c.release();
@@ -140,12 +140,69 @@ describe('masked customer lookup', () => {
     const r = await pool.query<{ id: string }>("insert into governance.approval_request (kind, payload, reason, proposed_by) values ('customer_unmask', $1, 'Database rule test', $2) returning id", [{ customerId, field: 'phone' }, support.id]);
     await expect(pool.query("update governance.approval_request set status = 'approved', decided_by = $2, decided_at = now() where id = $1", [r.rows[0].id, finance.id])).rejects.toThrow(/compliance or a super administrator/);
     await expect(pool.query("update governance.approval_request set status = 'approved', decided_by = $2, decided_at = now() where id = $1", [r.rows[0].id, support.id])).rejects.toThrow();
-    await expect(pool.query("insert into governance.approval_request (kind, payload, reason, proposed_by) values ('customer_unmask', $1, 'Asks for a national ID', $2)", [{ customerId, field: 'national_id' }, support.id])).rejects.toThrow();
+    await expect(pool.query("insert into governance.approval_request (kind, payload, reason, proposed_by) values ('customer_unmask', $1, 'Asks for a passport number', $2)", [{ customerId, field: 'passport' }, support.id])).rejects.toThrow();
     // Compliance still cannot decide role or setting changes.
     const role = await as(support).get('/admin/me').expect(200);
     const g = await pool.query<{ id: string }>("insert into governance.approval_request (kind, payload, reason, proposed_by) values ('role_grant', $1, 'Database rule test', $2) returning id", [{ staffUserId: role.body.id, role: 'finance' }, seeded['super-admin-1']]);
     await as(compliance).post(`/admin/approvals/${g.rows[0].id}/approve`).send({}).expect(403);
     await as(support).post('/admin/approvals').send({ kind: 'customer_unmask', payload: { customerId, field: 'phone' }, reason: 'Wrong door' }).expect(403);
+  });
+});
+
+describe('national ID numbers', () => {
+  it('are stored encrypted, shown masked, found by exact match, and unmasked only with approval', async () => {
+    const otp = await http().post('/auth/otp').send({ phone: '0700000902' }).expect(202);
+    const token = (await http().post('/auth/otp/verify').send({ challengeId: otp.body.challengeId, code: PRE_LAUNCH_SYNTHETIC_CODE }).expect(200)).body.accessToken;
+    const me = () => http().get('/me').set('Authorization', `Bearer ${token}`);
+    const add = (nationalId: unknown) => http().post('/me/national-id').set('Authorization', `Bearer ${token}`).set('Idempotency-Key', key()).send({ nationalId });
+    expect((await me().expect(200)).body.nationalId).toBeNull();
+    await add('12345').expect(422);
+    await add('ABC12345').expect(422);
+    expect((await add('3141 5926').expect(200)).body).toEqual({ nationalId: '******26' });
+    expect((await me().expect(200)).body.nationalId).toBe('******26');
+    const id = (await me()).body.id;
+
+    // Nothing in the database holds the number in clear, or as a plain hash.
+    const { createHash } = await import('node:crypto');
+    const plainHash = createHash('sha256').update('31415926').digest('hex');
+    for (const sql of ['select * from identity.national_id', 'select * from governance.audit_event where actor_id = $1', 'select * from platform.idempotency_key']) {
+      const rows = JSON.stringify((await pool.query(sql, sql.includes('$1') ? [id] : [])).rows);
+      expect(rows).not.toContain('31415926');
+      expect(rows).not.toContain(plainHash);
+    }
+
+    // Another account cannot take the same number.
+    const otp2 = await http().post('/auth/otp').send({ phone: '0700000903' }).expect(202);
+    const token2 = (await http().post('/auth/otp/verify').send({ challengeId: otp2.body.challengeId, code: PRE_LAUNCH_SYNTHETIC_CODE }).expect(200)).body.accessToken;
+    await http().post('/me/national-id').set('Authorization', `Bearer ${token2}`).set('Idempotency-Key', key()).send({ nationalId: '31415926' }).expect(409);
+
+    const found = (await as(support).get('/admin/customers?nationalId=31415926').expect(200)).body.customers;
+    expect(found).toEqual([expect.objectContaining({ id, nationalIdMasked: '******26' })]);
+    expect(JSON.stringify(found)).not.toContain('31415926');
+    await as(support).get('/admin/customers?nationalId=123').expect(422);
+
+    // A phone approval does not unmask the ID, and the ID needs its own approval.
+    const phoneReq = (await as(support).post(`/admin/customers/${id}/unmask-requests`).send({ reason: 'Support case SYN-202: confirm caller' }).expect(201)).body;
+    await as(compliance).post(`/admin/approvals/${phoneReq.requestId}/approve`).send({}).expect(200);
+    await as(support).get(`/admin/customers/${id}/national-id?requestId=${phoneReq.requestId}`).expect(403);
+    const idReq = (await as(support).post(`/admin/customers/${id}/unmask-requests`).send({ field: 'national_id', reason: 'Support case SYN-202: insurer asks to confirm ID' }).expect(201)).body;
+    expect(idReq.field).toBe('national_id');
+    await as(support).get(`/admin/customers/${id}/national-id?requestId=${idReq.requestId}`).expect(403);
+    await as(compliance).post(`/admin/approvals/${idReq.requestId}/approve`).send({}).expect(200);
+    expect((await as(support).get(`/admin/customers/${id}/national-id?requestId=${idReq.requestId}`).expect(200)).body).toEqual({ customerId: id, nationalId: '31415926' });
+    await as(support2).get(`/admin/customers/${id}/national-id?requestId=${idReq.requestId}`).expect(403);
+    await as(support).post(`/admin/customers/${customerId}/unmask-requests`).send({ field: 'national_id', reason: 'Customer has no ID on file yet' }).expect(404);
+
+    // The insurer portal role cannot read the table at all.
+    const c = await pool.connect();
+    try {
+      await c.query('begin');
+      await c.query('set local role afyapay_portal');
+      await expect(c.query('select last_two from identity.national_id')).rejects.toThrow(/permission denied/);
+    } finally {
+      await c.query('rollback');
+      c.release();
+    }
   });
 });
 

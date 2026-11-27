@@ -32,6 +32,8 @@ services:
         generateValue: true   # part of the callback URL; never stored in Git
       - key: MFA_SECRET_KEY
         generateValue: true   # encrypts insurer staff authenticator secrets
+      - key: PII_ENCRYPTION_KEY
+        generateValue: true   # encrypts national ID numbers; losing it makes them unreadable
       - key: DATABASE_URL
         fromDatabase:
           name: afyapay-staging-db
