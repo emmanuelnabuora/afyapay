@@ -18,3 +18,13 @@ Gate G5 (security readiness) needs the evidence below before the pilot. Only com
 | Production environment plan | To do; the region needs counsel's advice, and nothing is deployed without the founder's approval | |
 
 The ZAP baseline is a passive scan. It is not a penetration test and does not replace one.
+
+## ZAP baseline findings (first run, 27 Nov 2026)
+
+No failures. Three low-risk warnings remain, each with a planned fix:
+
+| Warning | Where | Plan |
+|---|---|---|
+| Sub Resource Integrity missing (90003) | The Google Fonts stylesheet on all three apps | Self-host the Inter font. This also keeps customer IP addresses away from Google, and lets the CSP drop the Google origins. |
+| Cross-Origin-Embedder-Policy missing (90004) | All three apps | Add `require-corp` once the font is self-hosted; today it would block the Google font. |
+| CSP directive with no fallback (10055) | The 301 redirect from `/insurer` and `/admin` to the path with a trailing slash | That redirect comes from the static file server, which sets its own CSP. Make our app answer the redirect itself with the full policy. |
