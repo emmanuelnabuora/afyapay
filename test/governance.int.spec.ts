@@ -73,6 +73,7 @@ beforeAll(async () => {
   await seedSandbox(process.env.TEST_DATABASE_URL!);
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   app = moduleRef.createNestApplication({ logger: false });
+  app.getHttpAdapter().getInstance().set('trust proxy', 1); // as in main.ts
   await app.init();
   pool = app.get(PG_POOL);
   for (const r of (await pool.query("select id, split_part(email, '@', 1) as k from governance.staff_user where created_by = 'seed'")).rows) seeded[r.k] = r.id;
@@ -105,15 +106,19 @@ describe('staff sign-in', () => {
   });
 
   it('applies the IP allow-list to sign-in and to every request', async () => {
-    await setSetting('staff_ip_allowlist', ['10.20.0.0/16']);
+    // Other test files run at the same time from 127.0.0.1, so the list always keeps it;
+    // this file's app trusts one proxy hop, so a forwarded address stands for an outside network.
+    const outside = '196.201.214.7';
+    await setSetting('staff_ip_allowlist', ['127.0.0.1/32', '::1/128']);
     try {
-      await as(adminA).get('/admin/me').expect(403);
-      await http().post('/admin-auth/email-code').send({ email: 'super-admin-1@sandbox.test' }).expect(403);
+      await as(adminA).get('/admin/me').expect(200);
+      await as(adminA).get('/admin/me').set('X-Forwarded-For', outside).expect(403);
+      await http().post('/admin-auth/email-code').set('X-Forwarded-For', outside).send({ email: 'super-admin-1@sandbox.test' }).expect(403);
+      await setSetting('staff_ip_allowlist', ['127.0.0.1/32', '::1/128', '196.201.214.0/24']);
+      await as(adminA).get('/admin/me').set('X-Forwarded-For', outside).expect(200);
     } finally {
-      await setSetting('staff_ip_allowlist', ['127.0.0.1/32', '::1/128']);
+      await setSetting('staff_ip_allowlist', []);
     }
-    await as(adminA).get('/admin/me').expect(200);
-    await setSetting('staff_ip_allowlist', []);
   });
 });
 

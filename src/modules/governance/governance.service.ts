@@ -14,7 +14,7 @@ export interface UploadedEvidence {
   buffer: Buffer;
 }
 
-type Kind = 'role_grant' | 'role_revoke' | 'setting_change';
+type Kind = 'role_grant' | 'role_revoke' | 'setting_change' | 'customer_unmask';
 type SettingKey = 'staff_ip_allowlist' | 'live_money_enabled';
 
 /** A rule the database refused (raised with errcode P0001) becomes a clear 403 instead of a 500. */
@@ -89,6 +89,8 @@ export class GovernanceService {
       payload = { staffUserId: p.staffUserId, role: p.role };
     } else if (kind === 'setting_change') {
       payload = { key: p.key, value: await this.checkSetting(p.key, p.value) };
+    } else if (kind === 'customer_unmask') {
+      throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'approval.kind_invalid', 'Ask to see a full phone number from the customer lookup.');
     } else {
       throw fail(HttpStatus.UNPROCESSABLE_ENTITY, 'approval.kind_invalid', 'kind must be role_grant, role_revoke or setting_change.');
     }
@@ -112,7 +114,9 @@ export class GovernanceService {
     const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) || null : null;
     return this.decide(actor, id, async (tx, req) => {
       await guarded(() => tx.query("update governance.approval_request set status = 'approved', decided_by = $2, decision_note = $3, decided_at = now() where id = $1", [id, actor.id, note]));
-      if (req.kind === 'setting_change') {
+      if (req.kind === 'customer_unmask') {
+        // Nothing to apply: the approval lets the proposer see the number for 30 minutes.
+      } else if (req.kind === 'setting_change') {
         if (req.payload.key === 'live_money_enabled' && req.payload.value === true) await this.checkLiveMoneyGates(tx);
         await guarded(() => tx.query('insert into governance.setting_event (key, value, approval_request_id) values ($1, $2, $3)', [req.payload.key, JSON.stringify(req.payload.value), id]));
       } else {
@@ -158,7 +162,9 @@ export class GovernanceService {
       if (!req) throw fail(HttpStatus.NOT_FOUND, 'approval.not_found', 'Request not found.');
       if (req.status !== 'proposed') throw fail(HttpStatus.CONFLICT, 'approval.already_decided', `This request is already ${req.status}.`);
       if (req.proposed_by === actor.id) throw fail(HttpStatus.FORBIDDEN, 'approval.second_person', 'Someone other than the proposer must decide this request.');
-      if (req.kind !== 'setting_change' && req.payload.staffUserId === actor.id) throw fail(HttpStatus.FORBIDDEN, 'approval.own_roles', 'Nobody can decide a change to their own roles.');
+      const deciders = req.kind === 'customer_unmask' ? ['compliance', 'super_admin'] : ['super_admin'];
+      if (!actor.roles.some((r) => deciders.includes(r))) throw fail(HttpStatus.FORBIDDEN, 'staff.role_required', `Only ${deciders.join(' or ')} can decide this request.`);
+      if ((req.kind === 'role_grant' || req.kind === 'role_revoke') && req.payload.staffUserId === actor.id) throw fail(HttpStatus.FORBIDDEN, 'approval.own_roles', 'Nobody can decide a change to their own roles.');
       await fn(tx, req);
       return this.viewRequest(tx, id);
     });
