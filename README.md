@@ -54,3 +54,9 @@ Before go-live no SMS is sent, and only synthetic numbers (`+254700000xxx`) can 
 ## Linking a policy
 
 `GET /v1/insurers` and `GET /v1/insurers/{code}/consent` give the insurer list and the consent wording with its version. `POST /v1/me/policy-links {insurerCode, policyNumber, consent: true, consentTextVersion}` records the consent and creates a link that waits for the insurer (`pending_insurer`). Only the insurer can confirm or reject it (`PolicyLinkService.decide`; the insurer portal endpoint arrives with insurer sign-in in E7). Staging seeds two fictional insurers, PWANI and JAMII, on start.
+
+## Finding and comparing plans (sandbox only)
+
+`GET /v1/plans?householdSize=&budgetMinor=&county=&coverType=` lists active plans supplied by insurers, ranked by the monthly price for that household, lowest first. Nothing else changes the order: the catalogue has no commission or fee column, and sponsored plans carry a "Sponsored" label without moving up. `GET /v1/plans/compare?ids=a,b[,c]` shows up to three plans side by side. A signed-in customer can ask an insurer to contact them with `POST /v1/me/plan-interests`, which needs consent to the wording from `GET /v1/plans/{id}/interest-consent`. Insurer staff manage their plans and see that interest under `/v1/insurer/plans` and `/v1/insurer/plan-interests`.
+
+Buying through AfyaPay is off. `GET /v1/plans/status` says so, and every plan carries `buy.available: false`. It can only come on through an approved `plan_buying_enabled` setting, which the database refuses until launch gate G6 is closed. Staging shows the fictional sandbox insurers' made-up plans only.

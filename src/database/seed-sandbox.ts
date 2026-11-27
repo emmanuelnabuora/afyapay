@@ -39,6 +39,7 @@ export async function seedSandbox(connectionString: string): Promise<number> {
       n++;
     }
     await seedStaff(client);
+    await seedPlans(client);
     return n;
   } finally {
     await client.end();
@@ -77,6 +78,30 @@ async function seedStaff(client: Client): Promise<void> {
   } catch (err) {
     await client.query('rollback');
     throw err;
+  }
+}
+
+/** Fictional plans for the sandbox catalogue. Figures are made up and for testing only. */
+const SANDBOX_PLANS = [
+  { insurer: 'PWANI', code: 'PM-IN', name: 'Afya Basic Individual', coverType: 'health_individual', min: 1, max: 1, base: 99_000, extra: 0, counties: [], inpatient: 30_000_000, outpatient: 5_000_000, waiting: 30, sponsored: false,
+    summary: 'Fictional sandbox plan: inpatient and outpatient cover for one adult.', benefits: ['Inpatient care', 'Outpatient visits', 'Prescribed medicines'], exclusions: ['Cosmetic treatment'] },
+  { insurer: 'PWANI', code: 'PM-HL', name: 'Afya Plus Family', coverType: 'health_family', min: 2, max: 7, base: 132_000, extra: 35_000, counties: [], inpatient: 50_000_000, outpatient: 10_000_000, waiting: 60, sponsored: true,
+    summary: 'Fictional sandbox plan: family cover with maternity after the waiting period.', benefits: ['Inpatient care', 'Outpatient visits', 'Maternity', 'Dental check-up'], exclusions: ['Cosmetic treatment', 'Pre-existing conditions in the first year'] },
+  { insurer: 'JAMII', code: 'JA-FB', name: 'Familia Basic', coverType: 'health_family', min: 2, max: 6, base: 115_000, extra: 30_000, counties: ['Nairobi', 'Kiambu', 'Machakos', 'Kajiado'], inpatient: 40_000_000, outpatient: 6_000_000, waiting: 30, sponsored: false,
+    summary: 'Fictional sandbox plan: family cover at partner facilities around Nairobi.', benefits: ['Inpatient care', 'Outpatient visits', 'Child immunisations'], exclusions: ['Treatment outside partner facilities'] },
+  { insurer: 'JAMII', code: 'JA-BD', name: 'Boda Cover', coverType: 'personal_accident', min: 1, max: 1, base: 45_000, extra: 0, counties: [], inpatient: 20_000_000, outpatient: null, waiting: 0, sponsored: false,
+    summary: 'Fictional sandbox plan: accident cover for motorbike riders.', benefits: ['Accident hospital care', 'Disability benefit'], exclusions: ['Riding without a licence'] },
+];
+
+async function seedPlans(client: Client): Promise<void> {
+  for (const p of SANDBOX_PLANS) {
+    await client.query(
+      `insert into catalogue.plan (insurer_id, code, name, cover_type, summary, min_household, max_household, base_monthly_minor, per_extra_member_minor,
+                                   counties, inpatient_limit_minor, outpatient_limit_minor, waiting_period_days, benefits, exclusions, sponsored, updated_by)
+       select id, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'seed' from insurer.insurer where code = $1
+       on conflict (insurer_id, code) do nothing`,
+      [p.insurer, p.code, p.name, p.coverType, p.summary, p.min, p.max, p.base, p.extra, p.counties, p.inpatient, p.outpatient, p.waiting, JSON.stringify(p.benefits), JSON.stringify(p.exclusions), p.sponsored],
+    );
   }
 }
 
