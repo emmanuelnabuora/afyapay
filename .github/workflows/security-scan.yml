@@ -39,7 +39,7 @@ jobs:
       MFA_SECRET_KEY: scan-only-mfa-secret-key-not-real-00000
       PII_ENCRYPTION_KEY: scan-only-pii-encryption-key-not-real-00
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
