@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthController, MeController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { CustomerAuthGuard } from './customer-auth.guard';
+import { NationalIdService } from './national-id.service';
 import { SMS_SENDER, SuppressedSmsSender } from './sms';
 
 /**
@@ -10,7 +11,7 @@ import { SMS_SENDER, SuppressedSmsSender } from './sms';
  */
 @Module({
   controllers: [AuthController, MeController],
-  providers: [AuthService, CustomerAuthGuard, { provide: SMS_SENDER, useClass: SuppressedSmsSender }],
+  providers: [AuthService, CustomerAuthGuard, NationalIdService, { provide: SMS_SENDER, useClass: SuppressedSmsSender }],
   exports: [CustomerAuthGuard],
 })
 export class IdentityModule {}
